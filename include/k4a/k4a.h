@@ -848,6 +848,12 @@ K4A_EXPORT int k4a_image_get_stride_bytes(k4a_image_t image_handle);
  *
  * \remarks
  * Returns the device timestamp of the image. Timestamps are recorded by the device and represent the mid-point of
+ * exposure when using K4A_WIRED_SYNC_MODE_STANDALONE mode. They represent the beginning of the exposure when using
+ * K4A_WIRED_SYNC_MODE_MASTER or K4A_WIRED_SYNC_MODE_SUBORDINATE modes. They may be used for relative comparison, but
+ * their absolute value has no defined meaning.
+ *
+ * \remarks
+ * Returns the device timestamp of the image. Timestamps are recorded by the device and represent the mid-point of
  * exposure. They may be used for relative comparison, but their absolute value has no defined meaning.
  *
  * \returns

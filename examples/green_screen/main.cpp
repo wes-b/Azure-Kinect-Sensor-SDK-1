@@ -13,6 +13,11 @@
 #include <opencv2/imgproc.hpp>
 #include <opencv2/highgui.hpp>
 
+#if USE_OPENCV_VIZ
+#include <opencv2/viz.hpp>
+#include "util.h" // Adapted from AzureKinectSample
+#endif
+
 using std::cerr;
 using std::cout;
 using std::endl;
@@ -55,6 +60,333 @@ static Transformation calibrate_devices(MultiDeviceCapturer &capturer,
                                         double calibration_timeout);
 static k4a::image create_depth_image_like(const k4a::image &im);
 
+static int string_compare(const char *s1, const char *s2)
+{
+    assert(s1 != NULL);
+    assert(s2 != NULL);
+
+    while (tolower((unsigned char)*s1) == tolower((unsigned char)*s2))
+    {
+        if (*s1 == '\0')
+        {
+            return 1; // Exact match
+        }
+        s1++;
+        s2++;
+    }
+    return 0; // Not an exact match
+}
+
+static bool parse_args(int argc,
+                       char **argv,
+                       size_t *num_devices,
+                       cv::Size *chessboard_pattern,
+                       float *chessboard_square_length,
+                       uint16_t *depth_threshold,
+                       int32_t *color_exposure_usec,
+                       int32_t *powerline_freq,
+                       double *calibration_timeout,
+                       double *app_duration,
+                       bool *green_screen,
+                       bool *invisibility_cloak,
+                       bool *point_cloud)
+{
+    for (int i = 1; i < argc; i++)
+    {
+        if (string_compare(argv[i], "-d") || string_compare(argv[i], "--device_count"))
+        {
+            *num_devices = static_cast<size_t>(atoi(argv[++i]));
+            if (*num_devices > k4a::device::get_installed_count())
+            {
+                cerr << "Not enough cameras plugged in!\n";
+                cerr << "count is " << k4a::device::get_installed_count() << "\n";
+                return false;
+            }
+        }
+        else if (string_compare(argv[i], "-cb") || string_compare(argv[i], "--chessboard"))
+        {
+            if (argc >= i + 1 + 3)
+            {
+                chessboard_pattern->height = atoi(argv[++i]);
+                chessboard_pattern->width = atoi(argv[++i]);
+                *chessboard_square_length = static_cast<float>(atof(argv[++i]));
+            }
+            else
+            {
+                cerr << "Not enough params for --chessboard!\n";
+                return false;
+            }
+        }
+        else if (string_compare(argv[i], "-th") || string_compare(argv[i], "--depth_threshold"))
+        {
+            *depth_threshold = static_cast<uint16_t>(atoi(argv[++i]));
+        }
+        else if (string_compare(argv[i], "-e") || string_compare(argv[i], "--exposure"))
+        {
+            *color_exposure_usec = atoi(argv[++i]);
+        }
+        else if (string_compare(argv[i], "-p") || string_compare(argv[i], "--powerline_frequency"))
+        {
+            *powerline_freq = atoi(argv[++i]);
+        }
+        else if (string_compare(argv[i], "-c") || string_compare(argv[i], "--timeout_calibration"))
+        {
+            *calibration_timeout = atof(argv[++i]);
+        }
+        else if (string_compare(argv[i], "-a") || string_compare(argv[i], "--timeout_application"))
+        {
+            *app_duration = atof(argv[++i]);
+        }
+        else if (string_compare(argv[i], "-gs") || string_compare(argv[i], "--green_screen"))
+        {
+            *green_screen = true;
+        }
+        else if (string_compare(argv[i], "-ic") || string_compare(argv[i], "--invisibility_cloak"))
+        {
+            *invisibility_cloak = true;
+        }
+        else if (string_compare(argv[i], "-pc") || string_compare(argv[i], "--point_cloud"))
+        {
+            *point_cloud = true;
+        }
+        else
+        {
+            cerr << "Unknown command parameter " << argv[i] << "\n";
+            return false;
+        }
+    }
+    return true;
+}
+
+void green_screen(double app_duration,
+                  k4a_device_configuration_t *secondary_config,
+                  k4a::transformation *main_depth_to_main_color,
+                  k4a::transformation *secondary_depth_to_main_color,
+                  MultiDeviceCapturer *capturer,
+                  uint16_t depth_threshold)
+{
+    std::chrono::time_point<std::chrono::system_clock> start_time = std::chrono::system_clock::now();
+    while (std::chrono::duration<double>(std::chrono::system_clock::now() - start_time).count() < app_duration)
+    {
+        vector<k4a::capture> captures;
+        captures = capturer->get_synchronized_captures(*secondary_config, true);
+        k4a::image main_color_image = captures[0].get_color_image();
+        k4a::image main_depth_image = captures[0].get_depth_image();
+
+        // let's green screen out things that are far away.
+        // first: let's get the main depth image into the color camera space
+        k4a::image main_depth_in_main_color = create_depth_image_like(main_color_image);
+        main_depth_to_main_color->depth_image_to_color_camera(main_depth_image, &main_depth_in_main_color);
+
+        cv::Mat cv_main_depth_in_main_color = depth_to_opencv(main_depth_in_main_color);
+        cv::Mat cv_main_color_image = color_to_opencv(main_color_image);
+
+        /* LAB_2.2 */
+        // create the image that will be be used as output
+        // make a green background
+        cv::Scalar green_pixel(0, 255, 0);
+        cv::Mat output_image(cv_main_color_image.rows, cv_main_color_image.cols, CV_8UC3, green_pixel);
+
+        k4a::image secondary_depth_image = captures[1].get_depth_image();
+        k4a::image secondary_depth_in_main_color = create_depth_image_like(main_color_image);
+        secondary_depth_to_main_color->depth_image_to_color_camera(secondary_depth_image,
+                                                                   &secondary_depth_in_main_color);
+
+        cv::Mat cv_secondary_depth_in_main_color = depth_to_opencv(secondary_depth_in_main_color);
+
+        // Now it's time to actually construct the green screen. Where the depth is 0, the camera doesn't know how
+        // far away the object is because it didn't get a response at that point. That's where we'll try to fill in
+        // the gaps with the other camera.
+        cv::Mat main_valid_mask = cv_main_depth_in_main_color != 0;
+        cv::Mat secondary_valid_mask = cv_secondary_depth_in_main_color != 0;
+        // build depth mask. If the main camera depth for a pixel is valid and the depth is within the threshold,
+        // then set the mask to display that pixel. If the main camera depth for a pixel is invalid but the
+        // secondary depth for a pixel is valid and within the threshold, then set the mask to display that pixel.
+        cv::Mat within_threshold_range = (main_valid_mask & (cv_main_depth_in_main_color < depth_threshold)) |
+                                         (~main_valid_mask & secondary_valid_mask &
+                                          (cv_secondary_depth_in_main_color < depth_threshold));
+        // copy main color image to output image only where the mask within_threshold_range is true
+        cv_main_color_image.copyTo(output_image, within_threshold_range);
+
+        cv::imshow("Green Screen", output_image);
+        /* END LAB_2.2 */
+        cv::waitKey(1);
+    }
+}
+
+void invisibility_cloak(double app_duration,
+                        cv::Mat background_image,
+                        k4a_device_configuration_t *secondary_config,
+                        k4a::transformation *main_depth_to_main_color,
+                        k4a::transformation *secondary_depth_to_main_color,
+                        MultiDeviceCapturer *capturer,
+                        uint16_t depth_threshold)
+{
+    cv::Mat output_image = background_image.clone(); // allocated outside the loop to avoid re-creating every time
+
+    std::chrono::time_point<std::chrono::system_clock> start_time = std::chrono::system_clock::now();
+    while (std::chrono::duration<double>(std::chrono::system_clock::now() - start_time).count() < app_duration)
+    {
+        vector<k4a::capture> captures;
+        captures = capturer->get_synchronized_captures(*secondary_config, true);
+        k4a::image main_color_image = captures[0].get_color_image();
+        k4a::image main_depth_image = captures[0].get_depth_image();
+
+        // let's green screen out things that are far away.
+        // first: let's get the main depth image into the color camera space
+        k4a::image main_depth_in_main_color = create_depth_image_like(main_color_image);
+        main_depth_to_main_color->depth_image_to_color_camera(main_depth_image, &main_depth_in_main_color);
+
+        cv::Mat cv_main_depth_in_main_color = depth_to_opencv(main_depth_in_main_color);
+        cv::Mat cv_main_color_image = color_to_opencv(main_color_image);
+
+        k4a::image secondary_depth_image = captures[1].get_depth_image();
+        k4a::image secondary_depth_in_main_color = create_depth_image_like(main_color_image);
+        secondary_depth_to_main_color->depth_image_to_color_camera(secondary_depth_image,
+                                                                   &secondary_depth_in_main_color);
+
+        cv::Mat cv_secondary_depth_in_main_color = depth_to_opencv(secondary_depth_in_main_color);
+
+        // Now it's time to actually construct the green screen. Where the depth is 0, the camera doesn't know how
+        // far away the object is because it didn't get a response at that point. That's where we'll try to fill in
+        // the gaps with the other camera.
+        cv::Mat main_valid_mask = cv_main_depth_in_main_color != 0;
+        cv::Mat secondary_valid_mask = cv_secondary_depth_in_main_color != 0;
+        // build depth mask. If the main camera depth for a pixel is valid and the depth is within the threshold,
+        // then set the mask to display that pixel. If the main camera depth for a pixel is invalid but the
+        // secondary depth for a pixel is valid and within the threshold, then set the mask to display that pixel.
+        cv::Mat within_threshold_range = (main_valid_mask & (cv_main_depth_in_main_color < depth_threshold)) |
+                                         (~main_valid_mask & secondary_valid_mask &
+                                          (cv_secondary_depth_in_main_color < depth_threshold));
+        // copy main color image to output image only where the mask within_threshold_range is true
+        cv_main_color_image.copyTo(output_image, within_threshold_range);
+        // fill the rest with the background image
+        background_image.copyTo(output_image, ~within_threshold_range);
+
+        cv::imshow("Green Screen", output_image);
+        cv::waitKey(1);
+    }
+}
+
+void point_cloud(double app_duration,
+                 k4a_device_configuration_t *secondary_config,
+                 k4a::transformation *main_depth_to_main_color,
+                 k4a::transformation *secondary_depth_to_main_color,
+                 MultiDeviceCapturer *capturer,
+                 uint16_t depth_threshold)
+{
+#if USE_OPENCV_VIZ
+
+    // For plotting point cloud
+    k4a::image main_xyz_image;
+    k4a::image secondary_xyz_image;
+    cv::Mat main_xyz;
+    cv::Mat secondary_xyz;
+
+    // Pointcloud viewer
+    const cv::String window_name = "point cloud";
+    cv::viz::Viz3d viewer = cv::viz::Viz3d(window_name);
+
+    // Show Coordinate System Origin
+    constexpr double scale = 100.0;
+    viewer.showWidget("origin", cv::viz::WCameraPosition(scale));
+
+    std::chrono::time_point<std::chrono::system_clock> start_time = std::chrono::system_clock::now();
+    while (std::chrono::duration<double>(std::chrono::system_clock::now() - start_time).count() < app_duration)
+    {
+        vector<k4a::capture> captures;
+        captures = capturer->get_synchronized_captures(*secondary_config, true);
+        k4a::image main_color_image = captures[0].get_color_image();
+        k4a::image main_depth_image = captures[0].get_depth_image();
+        k4a::image secondary_depth_image = captures[1].get_depth_image();
+
+        // Invalidate depth data beyond depth_threshold to remove it from the point cloud
+        uint16_t *buffer = (uint16_t *)main_depth_image.get_buffer();
+        for (int x = 0; x < main_depth_image.get_size() / 2; x++)
+        {
+            if (buffer[x] > depth_threshold)
+            {
+                buffer[x] = 0;
+            }
+        }
+        // Invalidate depth data beyond depth_threshold to remove it from the point cloud
+        buffer = (uint16_t *)secondary_depth_image.get_buffer();
+        for (int x = 0; x < secondary_depth_image.get_size() / 2; x++)
+        {
+            if (buffer[x] > depth_threshold)
+            {
+                buffer[x] = 0;
+            }
+        }
+
+        // let's green screen out things that are far away.
+        // first: let's get the main depth image into the color camera space
+        k4a::image main_depth_in_main_color = create_depth_image_like(main_color_image);
+        main_depth_to_main_color->depth_image_to_color_camera(main_depth_image, &main_depth_in_main_color);
+
+        cv::Mat cv_main_depth_in_main_color = depth_to_opencv(main_depth_in_main_color);
+        cv::Mat cv_main_color_image = color_to_opencv(main_color_image);
+
+        // Get the depth image in the main color perspective
+        k4a::image secondary_depth_in_main_color = create_depth_image_like(main_color_image);
+        secondary_depth_to_main_color->depth_image_to_color_camera(secondary_depth_image,
+                                                                   &secondary_depth_in_main_color);
+
+        cv::Mat cv_secondary_depth_in_main_color = depth_to_opencv(secondary_depth_in_main_color);
+
+        // Transform Depth Image to Point Cloud
+        main_xyz_image = main_depth_to_main_color->depth_image_to_point_cloud(main_depth_in_main_color,
+                                                                              K4A_CALIBRATION_TYPE_COLOR);
+        secondary_xyz_image = secondary_depth_to_main_color->depth_image_to_point_cloud(secondary_depth_in_main_color,
+                                                                                        K4A_CALIBRATION_TYPE_COLOR);
+        // Get cv::Mat from k4a::image
+        main_xyz = k4a::get_mat(main_xyz_image);
+        secondary_xyz = k4a::get_mat(secondary_xyz_image);
+
+        // Create Point Cloud Widget
+        // cv::viz::WCloud cloud = cv::viz::WCloud(main_xyz, cv_main_color_image);
+        cv::viz::WCloud cloud = cv::viz::WCloud(main_xyz, cv::viz::Color::blue());
+        cv::viz::WCloud cloud2 = cv::viz::WCloud(secondary_xyz, cv::viz::Color::red());
+
+        // Show Widget
+        viewer.showWidget("cloud", cloud);
+        viewer.showWidget("cloud2", cloud2);
+        viewer.spinOnce();
+    }
+
+    // Close Viewer
+    viewer.close();
+#else
+    (void)app_duration;
+    (void)secondary_config;
+    (void)main_depth_to_main_color;
+    (void)secondary_depth_to_main_color;
+    (void)capturer;
+    (void)depth_threshold;
+
+    cout << "Application not enabled for use with OpenCvViz yet" << endl;
+    exit(1);
+#endif
+}
+
+static void print_usage(void)
+{
+    cerr << "Usage: green_screen \n";
+    cerr << "    -d,  --device_count: REQUIRED\n";
+    cerr << "    -cb, --chessboard: REQUIRED x & y intersection count of chess board \n";
+    cerr << "    -th, --depth_threshold: distance in mm, default is 1000mm.\n";
+    cerr << "    -e,  --exposure: default is 8000us\n";
+    cerr << "    -p,  --powerline_frequency: set to 1 for 50Hz, 2 for 60Hz (default)\n";
+    cerr << "    -c,  --timeout_calibration: Maximum amount of time, in seconds, to spend attempting to calibrate, "
+            "default is 60.\n";
+    cerr << "    -a,  --timeout_application: Maximum amount of time, in seconds, to spend running the application, "
+            "default is infinite.\n";
+    cerr << "    -gs,  --green_screen: DEFAULT Run application in green screen mode.\n";
+    cerr << "    -ic,  --invisibility_cloak: Run application in invisibility cloak mode.\n";
+    cerr << "    -pc,  --point_cloud: Run application in point cloud mode.\n";
+    cerr << "    NOTE only 1 of -gs, -ic, or -pc can be set\n";
+}
+
 int main(int argc, char **argv)
 {
     float chessboard_square_length = 0.; // must be included in the input params
@@ -64,7 +396,10 @@ int main(int argc, char **argv)
     uint16_t depth_threshold = 1000;     // default to 1 meter
     size_t num_devices = 0;
     double calibration_timeout = 60.0; // default to timing out after 60s of trying to get calibrated
-    double greenscreen_duration = std::numeric_limits<double>::max(); // run forever
+    double app_duration = std::numeric_limits<double>::max(); // run forever
+    bool enable_green_screen = false;
+    bool enable_invisibility_cloak = false;
+    bool enable_point_cloud = false;
 
     vector<uint32_t> device_indices{ 0 }; // Set up a MultiDeviceCapturer to handle getting many synchronous captures
                                           // Note that the order of indices in device_indices is not necessarily
@@ -72,80 +407,65 @@ int main(int argc, char **argv)
                                           // on which one has sync out plugged in. Start with just { 0 }, and add
                                           // another if needed
 
-    if (argc < 5)
+    if (!parse_args(argc,
+                    argv,
+                    &num_devices,
+                    &chessboard_pattern,
+                    &chessboard_square_length,
+                    &depth_threshold,
+                    &color_exposure_usec,
+                    &powerline_freq,
+                    &calibration_timeout,
+                    &app_duration,
+                    &enable_green_screen,
+                    &enable_invisibility_cloak,
+                    &enable_point_cloud))
     {
-        cout << "Usage: green_screen <num-cameras> <board-height> <board-width> <board-square-length> "
-                "[depth-threshold-mm (default 1000)] [color-exposure-time-usec (default 8000)] "
-                "[powerline-frequency-mode (default 2 for 60 Hz)] [calibration-timeout-sec (default 60)]"
-                "[greenscreen-duration-sec (default infinity- run forever)]"
-             << endl;
+        print_usage();
 
-        cerr << "Not enough arguments!\n";
         exit(1);
-    }
-    else
-    {
-        num_devices = static_cast<size_t>(atoi(argv[1]));
-        if (num_devices > k4a::device::get_installed_count())
-        {
-            cerr << "Not enough cameras plugged in!\n";
-            exit(1);
-        }
-        chessboard_pattern.height = atoi(argv[2]);
-        chessboard_pattern.width = atoi(argv[3]);
-        chessboard_square_length = static_cast<float>(atof(argv[4]));
-
-        if (argc > 5)
-        {
-            depth_threshold = static_cast<uint16_t>(atoi(argv[5]));
-            if (argc > 6)
-            {
-                color_exposure_usec = atoi(argv[6]);
-                if (argc > 7)
-                {
-                    powerline_freq = atoi(argv[7]);
-                    if (argc > 8)
-                    {
-                        calibration_timeout = atof(argv[8]);
-                        if (argc > 9)
-                        {
-                            greenscreen_duration = atof(argv[9]);
-                        }
-                    }
-                }
-            }
-        }
     }
 
     if (num_devices != 2 && num_devices != 1)
     {
-        cerr << "Invalid choice for number of devices!\n";
+        cerr << "Invalid number of devices: " << num_devices << "!\n";
+        print_usage();
         exit(1);
     }
     else if (num_devices == 2)
     {
         device_indices.emplace_back(1); // now device indices are { 0, 1 }
     }
-    if (chessboard_pattern.height == 0)
+    if (num_devices > 1)
     {
-        cerr << "Chessboard height is not properly set!\n";
-        exit(1);
+        if (chessboard_pattern.height == 0)
+        {
+            cerr << "Chessboard height is not properly set!\n";
+            print_usage();
+            exit(1);
+        }
+        if (chessboard_pattern.width == 0)
+        {
+            cerr << "Chessboard height is not properly set!\n";
+            print_usage();
+            exit(1);
+        }
+        if (chessboard_square_length == 0.)
+        {
+            cerr << "Chessboard square size is not properly set!\n";
+            print_usage();
+            exit(1);
+        }
     }
-    if (chessboard_pattern.width == 0)
+    if (enable_green_screen == false && enable_point_cloud == false && enable_invisibility_cloak == false)
     {
-        cerr << "Chessboard height is not properly set!\n";
-        exit(1);
-    }
-    if (chessboard_square_length == 0.)
-    {
-        cerr << "Chessboard square size is not properly set!\n";
-        exit(1);
+        enable_green_screen = true;
     }
 
     cout << "Chessboard height: " << chessboard_pattern.height << ". Chessboard width: " << chessboard_pattern.width
          << ". Chessboard square length: " << chessboard_square_length << endl;
     cout << "Depth threshold: : " << depth_threshold << ". Color exposure time: " << color_exposure_usec
-         << ". Powerline frequency mode: " << powerline_freq << endl;
+         << ". Powerline frequency mode: " << ((powerline_freq == 2) ? "60Hz" : "50Hz") << endl;
 
     MultiDeviceCapturer capturer(device_indices, color_exposure_usec, powerline_freq);
 
@@ -170,17 +490,16 @@ int main(int argc, char **argv)
     // get an image to be the background
     vector<k4a::capture> background_captures = capturer.get_synchronized_captures(secondary_config);
     cv::Mat background_image = color_to_opencv(background_captures[0].get_color_image());
-    cv::Mat output_image = background_image.clone(); // allocated outside the loop to avoid re-creating every time
+    // cv::Mat output_image = background_image.clone(); // allocated outside the loop to avoid re-creating every time
 
     if (num_devices == 1)
     {
+        /* LAB_1 */
         std::chrono::time_point<std::chrono::system_clock> start_time = std::chrono::system_clock::now();
-        while (std::chrono::duration<double>(std::chrono::system_clock::now() - start_time).count() <
-               greenscreen_duration)
+        while (std::chrono::duration<double>(std::chrono::system_clock::now() - start_time).count() < app_duration)
         {
-            vector<k4a::capture> captures;
             // secondary_config isn't actually used here because there's no secondary device but the function needs it
-            captures = capturer.get_synchronized_captures(secondary_config, true);
+            vector<k4a::capture> captures = capturer.get_synchronized_captures(secondary_config, true);
             k4a::image main_color_image = captures[0].get_color_image();
             k4a::image main_depth_image = captures[0].get_depth_image();
 
@@ -195,16 +514,20 @@ int main(int argc, char **argv)
             cv::Mat within_threshold_range = (cv_main_depth_in_main_color != 0) &
                                              (cv_main_depth_in_main_color < depth_threshold);
             // show the close details
+            cv::Scalar green_pixel(0, 255, 0);
+            cv::Mat output_image(cv_main_color_image.rows, cv_main_color_image.cols, CV_8UC3, green_pixel);
+
+            // Overwrite Green Image with color pixels within range
             cv_main_color_image.copyTo(output_image, within_threshold_range);
-            // hide the rest with the background image
-            background_image.copyTo(output_image, ~within_threshold_range);
 
             cv::imshow("Green Screen", output_image);
+
             cv::waitKey(1);
         }
     }
     else if (num_devices == 2)
     {
+        /* LAB_2.1 */
         // This wraps all the device-to-device details
         Transformation tr_secondary_color_to_main_color = calibrate_devices(capturer,
                                                                             main_config,
@@ -232,49 +555,39 @@ int main(int argc, char **argv)
                                                    secondary_calibration,
                                                    tr_secondary_depth_to_main_color);
         k4a::transformation secondary_depth_to_main_color(secondary_depth_to_main_color_cal);
+        /* End LAB_2.1*/
 
-        std::chrono::time_point<std::chrono::system_clock> start_time = std::chrono::system_clock::now();
-        while (std::chrono::duration<double>(std::chrono::system_clock::now() - start_time).count() <
-               greenscreen_duration)
+        if (enable_green_screen)
         {
-            vector<k4a::capture> captures;
-            captures = capturer.get_synchronized_captures(secondary_config, true);
-            k4a::image main_color_image = captures[0].get_color_image();
-            k4a::image main_depth_image = captures[0].get_depth_image();
-
-            // let's green screen out things that are far away.
-            // first: let's get the main depth image into the color camera space
-            k4a::image main_depth_in_main_color = create_depth_image_like(main_color_image);
-            main_depth_to_main_color.depth_image_to_color_camera(main_depth_image, &main_depth_in_main_color);
-            cv::Mat cv_main_depth_in_main_color = depth_to_opencv(main_depth_in_main_color);
-            cv::Mat cv_main_color_image = color_to_opencv(main_color_image);
-
-            k4a::image secondary_depth_image = captures[1].get_depth_image();
-
-            // Get the depth image in the main color perspective
-            k4a::image secondary_depth_in_main_color = create_depth_image_like(main_color_image);
-            secondary_depth_to_main_color.depth_image_to_color_camera(secondary_depth_image,
-                                                                      &secondary_depth_in_main_color);
-            cv::Mat cv_secondary_depth_in_main_color = depth_to_opencv(secondary_depth_in_main_color);
-
-            // Now it's time to actually construct the green screen. Where the depth is 0, the camera doesn't know how
-            // far away the object is because it didn't get a response at that point. That's where we'll try to fill in
-            // the gaps with the other camera.
-            cv::Mat main_valid_mask = cv_main_depth_in_main_color != 0;
-            cv::Mat secondary_valid_mask = cv_secondary_depth_in_main_color != 0;
-            // build depth mask. If the main camera depth for a pixel is valid and the depth is within the threshold,
-            // then set the mask to display that pixel. If the main camera depth for a pixel is invalid but the
-            // secondary depth for a pixel is valid and within the threshold, then set the mask to display that pixel.
-            cv::Mat within_threshold_range = (main_valid_mask & (cv_main_depth_in_main_color < depth_threshold)) |
-                                             (~main_valid_mask & secondary_valid_mask &
-                                              (cv_secondary_depth_in_main_color < depth_threshold));
-            // copy main color image to output image only where the mask within_threshold_range is true
-            cv_main_color_image.copyTo(output_image, within_threshold_range);
-            // fill the rest with the background image
-            background_image.copyTo(output_image, ~within_threshold_range);
-
-            cv::imshow("Green Screen", output_image);
-            cv::waitKey(1);
+            green_screen(app_duration,
+                         &secondary_config,
+                         &main_depth_to_main_color,
+                         &secondary_depth_to_main_color,
+                         &capturer,
+                         depth_threshold);
+        }
+        else if (enable_invisibility_cloak)
+        {
+            /* LAB_2.3
+            invisibility_cloak(app_duration,
+                               background_image,
+                               &secondary_config,
+                               &main_depth_to_main_color,
+                               &secondary_depth_to_main_color,
+                               &capturer,
+                               depth_threshold);
+            /* End LAB_2.3 */
+        }
+        else if (enable_point_cloud)
+        {
+#if USE_OPENCV_VIZ
+            point_cloud(app_duration,
+                        &secondary_config,
+                        &main_depth_to_main_color,
+                        &secondary_depth_to_main_color,
+                        &capturer,
+                        depth_threshold);
+#endif
         }
     }
     else
@@ -343,14 +656,15 @@ static k4a::calibration construct_device_to_device_calibration(const k4a::calibr
     {
         for (int j = 0; j < 3; ++j)
         {
-            ex.rotation[i * 3 + j] = static_cast<float>(secondary_to_main.R(i, j));
+            ex.rotation[i * 3 + j] += static_cast<float>(secondary_to_main.R(i, j));
         }
     }
     for (int i = 0; i < 3; ++i)
     {
-        ex.translation[i] = static_cast<float>(secondary_to_main.t[i]);
+        ex.translation[i] += static_cast<float>(secondary_to_main.t[i]);
     }
     cal.color_camera_calibration = main_cal.color_camera_calibration;
+    cal.color_resolution = main_cal.color_resolution; // Should already be the same
     return cal;
 }
 
