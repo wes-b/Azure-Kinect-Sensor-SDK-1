@@ -172,33 +172,30 @@ void green_screen(double app_duration,
         captures = capturer->get_synchronized_captures(*secondary_config, true);
         k4a::image main_color_image = captures[0].get_color_image();
         k4a::image main_depth_image = captures[0].get_depth_image();
+        k4a::image secondary_depth_image = captures[1].get_depth_image();
 
-        // let's green screen out things that are far away.
-        // first: let's get the main depth image into the color camera space
+        // Transform main depth image into color camera coordinate space
         k4a::image main_depth_in_main_color = create_depth_image_like(main_color_image);
         main_depth_to_main_color->depth_image_to_color_camera(main_depth_image, &main_depth_in_main_color);
 
-        cv::Mat cv_main_depth_in_main_color = depth_to_opencv(main_depth_in_main_color);
-        cv::Mat cv_main_color_image = color_to_opencv(main_color_image);
+        // Transform secondary depth Image into color camera coordinate space
+        k4a::image secondary_depth_in_main_color = create_depth_image_like(main_color_image);
+        secondary_depth_to_main_color->depth_image_to_color_camera(secondary_depth_image,
+                                                                   &secondary_depth_in_main_color);
 
-        /* LAB_2.2 */
+        cv::Mat cv_main_color_image = color_to_opencv(main_color_image);
+        cv::Mat cv_main_depth_in_main_color = depth_to_opencv(main_depth_in_main_color);
+        cv::Mat cv_secondary_depth_in_main_color = depth_to_opencv(secondary_depth_in_main_color);
+
         // create the image that will be be used as output
         // make a green background
         cv::Scalar green_pixel(0, 255, 0);
         cv::Mat output_image(cv_main_color_image.rows, cv_main_color_image.cols, CV_8UC3, green_pixel);
 
-        k4a::image secondary_depth_image = captures[1].get_depth_image();
-        k4a::image secondary_depth_in_main_color = create_depth_image_like(main_color_image);
-        secondary_depth_to_main_color->depth_image_to_color_camera(secondary_depth_image,
-                                                                   &secondary_depth_in_main_color);
-
-        cv::Mat cv_secondary_depth_in_main_color = depth_to_opencv(secondary_depth_in_main_color);
-
-        // Now it's time to actually construct the green screen. Where the depth is 0, the camera doesn't know how
-        // far away the object is because it didn't get a response at that point. That's where we'll try to fill in
-        // the gaps with the other camera.
+        // Build a mask of what pixels are valid. 0 in the depth data means we did not get a depth for that pixel.
         cv::Mat main_valid_mask = cv_main_depth_in_main_color != 0;
         cv::Mat secondary_valid_mask = cv_secondary_depth_in_main_color != 0;
+
         // build depth mask. If the main camera depth for a pixel is valid and the depth is within the threshold,
         // then set the mask to display that pixel. If the main camera depth for a pixel is invalid but the
         // secondary depth for a pixel is valid and within the threshold, then set the mask to display that pixel.
@@ -208,8 +205,28 @@ void green_screen(double app_duration,
         // copy main color image to output image only where the mask within_threshold_range is true
         cv_main_color_image.copyTo(output_image, within_threshold_range);
 
+        /* LAB_4
+        {
+            // Overlay red for where only the main camera sees a depth within our threshold, green where only
+            // secondary sees depth, and yellow where neither see depth.
+            cv::Scalar black_pixel(0, 0, 0);
+            cv::Scalar red_pixel(0, 0, 255);
+            cv::Mat black_image(cv_main_color_image.rows, cv_main_color_image.cols, CV_8UC3, black_pixel);
+            cv::Mat red_image(cv_main_color_image.rows, cv_main_color_image.cols, CV_8UC3, red_pixel);
+            cv::Mat green_image(cv_main_color_image.rows, cv_main_color_image.cols, CV_8UC3, green_pixel);
+
+            cv::Mat red_mask = main_valid_mask & (cv_main_depth_in_main_color < depth_threshold);
+            black_image.copyTo(red_image, red_mask);
+
+            cv::Mat green_mask = secondary_valid_mask & (cv_secondary_depth_in_main_color < depth_threshold);
+            black_image.copyTo(green_image, green_mask);
+
+
+            cv::addWeighted(cv_main_color_image, 1, red_image, .3, 0, output_image, -1);
+            cv::addWeighted(output_image, 1, green_image, .3, 0, output_image, -1);
+        } */
+
         cv::imshow("Green Screen", output_image);
-        /* END LAB_2.2 */
         cv::waitKey(1);
     }
 }
@@ -231,27 +248,25 @@ void invisibility_cloak(double app_duration,
         captures = capturer->get_synchronized_captures(*secondary_config, true);
         k4a::image main_color_image = captures[0].get_color_image();
         k4a::image main_depth_image = captures[0].get_depth_image();
+        k4a::image secondary_depth_image = captures[1].get_depth_image();
 
-        // let's green screen out things that are far away.
-        // first: let's get the main depth image into the color camera space
+        // Transform main depth image into main color camera coordinate space
         k4a::image main_depth_in_main_color = create_depth_image_like(main_color_image);
         main_depth_to_main_color->depth_image_to_color_camera(main_depth_image, &main_depth_in_main_color);
 
-        cv::Mat cv_main_depth_in_main_color = depth_to_opencv(main_depth_in_main_color);
-        cv::Mat cv_main_color_image = color_to_opencv(main_color_image);
-
-        k4a::image secondary_depth_image = captures[1].get_depth_image();
+        // Transform secondary depth image into main color camera coordinate space
         k4a::image secondary_depth_in_main_color = create_depth_image_like(main_color_image);
         secondary_depth_to_main_color->depth_image_to_color_camera(secondary_depth_image,
                                                                    &secondary_depth_in_main_color);
 
+        cv::Mat cv_main_depth_in_main_color = depth_to_opencv(main_depth_in_main_color);
+        cv::Mat cv_main_color_image = color_to_opencv(main_color_image);
         cv::Mat cv_secondary_depth_in_main_color = depth_to_opencv(secondary_depth_in_main_color);
 
-        // Now it's time to actually construct the green screen. Where the depth is 0, the camera doesn't know how
-        // far away the object is because it didn't get a response at that point. That's where we'll try to fill in
-        // the gaps with the other camera.
+        // Build a mask of what pixels are valid. 0 in the depth data means we did not get a depth for that pixel.
         cv::Mat main_valid_mask = cv_main_depth_in_main_color != 0;
         cv::Mat secondary_valid_mask = cv_secondary_depth_in_main_color != 0;
+
         // build depth mask. If the main camera depth for a pixel is valid and the depth is within the threshold,
         // then set the mask to display that pixel. If the main camera depth for a pixel is invalid but the
         // secondary depth for a pixel is valid and within the threshold, then set the mask to display that pixel.
@@ -263,7 +278,7 @@ void invisibility_cloak(double app_duration,
         // fill the rest with the background image
         background_image.copyTo(output_image, ~within_threshold_range);
 
-        cv::imshow("Green Screen", output_image);
+        cv::imshow("Invisibility Cloak", output_image);
         cv::waitKey(1);
     }
 }
@@ -555,7 +570,6 @@ int main(int argc, char **argv)
                                                    secondary_calibration,
                                                    tr_secondary_depth_to_main_color);
         k4a::transformation secondary_depth_to_main_color(secondary_depth_to_main_color_cal);
-        /* End LAB_2.1*/
 
         if (enable_green_screen)
         {
@@ -568,7 +582,6 @@ int main(int argc, char **argv)
         }
         else if (enable_invisibility_cloak)
         {
-            /* LAB_2.3
             invisibility_cloak(app_duration,
                                background_image,
                                &secondary_config,
@@ -576,7 +589,6 @@ int main(int argc, char **argv)
                                &secondary_depth_to_main_color,
                                &capturer,
                                depth_threshold);
-            /* End LAB_2.3 */
         }
         else if (enable_point_cloud)
         {
@@ -656,12 +668,12 @@ static k4a::calibration construct_device_to_device_calibration(const k4a::calibr
     {
         for (int j = 0; j < 3; ++j)
         {
-            ex.rotation[i * 3 + j] += static_cast<float>(secondary_to_main.R(i, j));
+            ex.rotation[i * 3 + j] = static_cast<float>(secondary_to_main.R(i, j));
         }
     }
     for (int i = 0; i < 3; ++i)
     {
-        ex.translation[i] += static_cast<float>(secondary_to_main.t[i]);
+        ex.translation[i] = static_cast<float>(secondary_to_main.t[i]);
     }
     cal.color_camera_calibration = main_cal.color_camera_calibration;
     cal.color_resolution = main_cal.color_resolution; // Should already be the same
