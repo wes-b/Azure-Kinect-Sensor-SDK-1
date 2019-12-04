@@ -12,6 +12,8 @@
 #include <opencv2/core.hpp>
 #include <opencv2/imgproc.hpp>
 #include <opencv2/highgui.hpp>
+// #include <opencv2/core/matx.hpp>
+#include <opencv2/imgcodecs.hpp>
 
 using std::cerr;
 using std::cout;
@@ -63,7 +65,7 @@ int main(int argc, char **argv)
     cv::Size chessboard_pattern(0, 0);   // height, width. Both need to be set.
     uint16_t depth_threshold = 1000;     // default to 1 meter
     size_t num_devices = 0;
-    double calibration_timeout = 60.0; // default to timing out after 60s of trying to get calibrated
+    double calibration_timeout = 600.0; // default to timing out after 60s of trying to get calibrated
     double greenscreen_duration = std::numeric_limits<double>::max(); // run forever
 
     vector<uint32_t> device_indices{ 0 }; // Set up a MultiDeviceCapturer to handle getting many synchronous captures
@@ -501,6 +503,20 @@ Transformation stereo_calibration(const k4a::calibration &main_calib,
                                        cv::CALIB_FIX_INTRINSIC | cv::CALIB_RATIONAL_MODEL | cv::CALIB_CB_FAST_CHECK);
     cout << "Finished calibrating!\n";
     cout << "Got error of " << error << "\n";
+
+    {
+        FILE *file_handle = fopen("img\\cal_results.txt", "a");
+        if (file_handle == NULL)
+        {
+            cerr << "file handle null for  %s\n";
+            exit(1);
+        }
+        char buffer[1024] = { 0 };
+        snprintf(buffer, sizeof(buffer), "cv::stereoCalibrate returned an error of %f\n", error);
+
+        fputs(buffer, file_handle);
+        fclose(file_handle);
+    }
     return tr;
 }
 
@@ -554,6 +570,112 @@ static k4a_device_configuration_t get_subordinate_config()
     return camera_config;
 }
 
+static void image_to_file(const k4a::image &im, char *file_path, int image_num)
+{
+    char buffer[1024];
+    snprintf(buffer, sizeof(buffer), "%s\\%03i_img.png", file_path, image_num);
+
+    // https://docs.opencv.org/trunk/d4/da8/group__imgcodecs.html#gabbc7ef1aa2edfaa87772f1202d67e0ce
+
+    cv::Mat im_mat;
+    if (im.get_width_pixels() == 1280 || im.get_height_pixels() == 720)
+    {
+        cv::Mat im_mat_temp(im.get_height_pixels(), im.get_width_pixels(), CV_8UC4, (void *)im.get_buffer());
+        im_mat = im_mat_temp;
+        //     cv::Mat cv_image_no_alpha;
+        //     cv::cvtColor(cv_image_with_alpha, cv_image_no_alpha, cv::COLOR_BGRA2BGR);
+        //     return cv_image_no_alpha;
+    }
+    else
+    {
+        // cv::Mat im_mat_rgba;
+        cv::Mat im_mat_grey(im.get_height_pixels(),
+                            im.get_width_pixels(),
+                            CV_16U,
+                            (void *)im.get_buffer(),
+                            static_cast<size_t>(im.get_stride_bytes()));
+
+        // cv::cvtColor(im_mat_grey, im_mat_rgba, cv::COLOR_GRAY2RGBA);COLOR_GRAY2BGRA
+        // cv::cvtColor(im_mat_rgba, im_mat, cv::COLOR_RGBA2BGRA);
+        uint32_t min = 250;  // GetDepthModeRange
+        uint32_t max = 2500; // GetDepthModeRange
+        // im_mat_grey = (im_mat_grey < min) ? 0 :
+        //                                     (im_mat_grey > max) ? 0xFFFF : (im_mat_grey - min * (max - min) *
+        //                                     0xFFFF);
+        for (int x = 0; x < im_mat_grey.cols; x++)
+        {
+            for (int y = 0; y < im_mat_grey.rows; y++)
+            {
+                ushort depth = im_mat_grey.at<ushort>(y, x);
+                if (depth < min)
+                {
+                    depth = 0;
+                }
+                else if (depth > max)
+                {
+                    depth = 0xFFFF;
+                }
+                else
+                {
+                    uint32_t depth32 = (depth - min) * 0xFFFF / (max - min);
+                    CV_Assert(depth32 <= 0xFFFF);
+                    //                    printf("%04Xr %04xs ", depth, depth32);
+                    depth = (ushort)(depth32);
+                }
+                im_mat_grey.at<ushort>(y, x) = depth;
+            }
+        }
+        // cv::Mat within_threshold_range = (main_valid_mask & (cv_main_depth_in_main_color < depth_threshold)) |
+        //                                  (~main_valid_mask & secondary_valid_mask &
+        //                                   (cv_secondary_depth_in_main_color < depth_threshold));
+
+        cv::cvtColor(im_mat_grey, im_mat, cv::COLOR_GRAY2BGRA);
+    }
+
+    CV_Assert(im_mat.channels() == 4);
+    // for (int i = 0; i < im_mat.rows; ++i)
+    // {
+    //     for (int j = 0; j < im_mat.cols; ++j)
+    //     {
+    //         // typedef Vec<uchar, 4> Vec4b;
+    //         cv::Vec4b &bgra = im_mat.at<cv::Vec4b>(i, j);
+    //         bgra[0] = UCHAR_MAX;                                                                             // Blue
+    //         bgra[1] = cv::saturate_cast<uchar>((float(im_mat.cols - j)) / ((float)im_mat.cols) * UCHAR_MAX); // Green
+    //         bgra[2] = cv::saturate_cast<uchar>((float(im_mat.rows - i)) / ((float)im_mat.rows) * UCHAR_MAX); // Red
+    //         bgra[3] = cv::saturate_cast<uchar>(0.5 * (bgra[1] + bgra[2]));                                   // Alpha
+    //     }
+    // }
+
+    vector<int> compression_params;
+    compression_params.push_back(cv::IMWRITE_PNG_COMPRESSION);
+    compression_params.push_back(9);
+
+    bool result = false;
+    try
+    {
+        result = imwrite(buffer, im_mat, compression_params);
+    }
+    catch (const cv::Exception &ex)
+    {
+        // fprintf(stderr, "Exception converting image to PNG format: %s\n", ex.what());
+        cerr << "Exception converting image to PNG format: " << ex.what();
+        exit(1);
+    }
+    if (result)
+        printf("Saved PNG file with alpha data.\n");
+    else
+        printf("ERROR: Can't save PNG file.\n");
+
+    // FILE *file_handle = fopen(buffer, "a");
+    // if (file_handle == NULL)
+    // {
+    //     cerr << "file handle null for  %s\n";
+    //     exit(1);
+    // }
+    // fputs((const char *)im.get_buffer(), file_handle);
+    // fclose(file_handle);
+}
+
 static Transformation calibrate_devices(MultiDeviceCapturer &capturer,
                                         const k4a_device_configuration_t &main_config,
                                         const k4a_device_configuration_t &secondary_config,
@@ -570,8 +692,38 @@ static Transformation calibrate_devices(MultiDeviceCapturer &capturer,
     vector<vector<cv::Point2f>> main_chessboard_corners_list;
     vector<vector<cv::Point2f>> secondary_chessboard_corners_list;
     std::chrono::time_point<std::chrono::system_clock> start_time = std::chrono::system_clock::now();
+
+    {
+        {
+            FILE *file_handle = fopen("img\\cal_main.json", "a");
+            if (file_handle == NULL)
+            {
+                cerr << "file handle null for  %s\n";
+                exit(1);
+            }
+            std::vector<uint8_t> cal = capturer.get_master_device().get_raw_calibration();
+            fputs(reinterpret_cast<char *>(cal.data()), file_handle);
+            fclose(file_handle);
+        }
+
+        {
+            FILE *file_handle = fopen("img\\cal_subordinate.json", "a");
+            if (file_handle == NULL)
+            {
+                cerr << "file handle null for  %s\n";
+                exit(1);
+            }
+            std::vector<uint8_t> cal = capturer.get_subordinate_device_by_index(0).get_raw_calibration();
+            fputs(reinterpret_cast<char *>(cal.data()), file_handle);
+            fclose(file_handle);
+        }
+    }
+
     while (std::chrono::duration<double>(std::chrono::system_clock::now() - start_time).count() < calibration_timeout)
     {
+        printf("Waiting for input, so far %d have been processed\n", (int)main_chessboard_corners_list.size());
+        getchar();
+
         vector<k4a::capture> captures = capturer.get_synchronized_captures(secondary_config);
         k4a::capture &main_capture = captures[0];
         k4a::capture &secondary_capture = captures[1];
@@ -591,6 +743,14 @@ static Transformation calibrate_devices(MultiDeviceCapturer &capturer,
                                                           secondary_chessboard_corners);
         if (got_corners)
         {
+            {
+                image_to_file(main_color_image, "img\\ColorA", (int)main_chessboard_corners_list.size());
+                image_to_file(secondary_color_image, "img\\ColorB", (int)main_chessboard_corners_list.size());
+                image_to_file(main_capture.get_depth_image(), "img\\DepthA", (int)main_chessboard_corners_list.size());
+                image_to_file(secondary_capture.get_depth_image(),
+                              "img\\DepthB",
+                              (int)main_chessboard_corners_list.size());
+            }
             main_chessboard_corners_list.emplace_back(main_chessboard_corners);
             secondary_chessboard_corners_list.emplace_back(secondary_chessboard_corners);
             cv::drawChessboardCorners(cv_main_color_image, chessboard_pattern, main_chessboard_corners, true);
@@ -603,7 +763,7 @@ static Transformation calibrate_devices(MultiDeviceCapturer &capturer,
         cv::waitKey(1);
 
         // Get 20 frames before doing calibration.
-        if (main_chessboard_corners_list.size() >= 20)
+        if (main_chessboard_corners_list.size() >= 10)
         {
             cout << "Calculating calibration..." << endl;
             return stereo_calibration(main_calibration,
