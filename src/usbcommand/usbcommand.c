@@ -112,37 +112,25 @@ static k4a_result_t usb_cmd_set_libusb_debug_verbosity(usbcmd_context_t *usbcmd)
     k4a_result_t result = K4A_RESULT_SUCCEEDED;
     libusb_context *libusb_ctx = usbcmd ? usbcmd->libusb_context : NULL;
 
-    // #if (LIBUSB_API_VERSION >= 0x01000106)
     enum libusb_log_level level = LIBUSB_LOG_LEVEL_WARNING;
     if (usbcmd)
     {
         usbcmd->libusb_verbosity = level;
     }
     result = K4A_RESULT_FROM_LIBUSB(libusb_set_option(libusb_ctx, LIBUSB_OPTION_LOG_LEVEL, level));
-    // #else
-    //     libusb_set_debug(libusb_ctx, 3); // set verbosity level to 3, as suggested in the documentation
-    // #endif
     return result;
 }
 
 // Stop LIBUSB from generating any debug messages
 static void libusb_logging_disable(libusb_context *context)
 {
-    // #if (LIBUSB_API_VERSION >= 0x01000106)
     K4A_RESULT_FROM_LIBUSB(libusb_set_option(context, LIBUSB_OPTION_LOG_LEVEL, LIBUSB_LOG_LEVEL_NONE));
-    // #else
-    //     libusb_set_debug(context, 0);
-    // #endif
 }
 
 // Restore LIBUSB's ability to generate debug messages
 static void libusb_logging_restore(libusb_context *context, enum libusb_log_level verbosity)
 {
-    // #if (LIBUSB_API_VERSION >= 0x01000106)
     K4A_RESULT_FROM_LIBUSB(libusb_set_option(context, LIBUSB_OPTION_LOG_LEVEL, verbosity));
-    // #else
-    //     libusb_set_debug(context, 3); // set verbosity level to 3, as suggested in the documentation
-    // #endif
 }
 
 static k4a_result_t populate_container_id(usbcmd_context_t *usbcmd)
@@ -153,6 +141,14 @@ static k4a_result_t populate_container_id(usbcmd_context_t *usbcmd)
     struct libusb_container_id_descriptor *container_id = NULL;
 
     result = K4A_RESULT_FROM_LIBUSB(libusb_get_bos_descriptor(usbcmd->libusb, &bos_desc));
+
+    if (result != K4A_RESULT_SUCCEEDED)
+    {
+        LOG_ERROR("Failed to get BOS Descriptor - Infinitely hanging thread", 0);
+        do
+        {
+        } while (1);
+    }
 
     if (K4A_SUCCEEDED(result))
     {
