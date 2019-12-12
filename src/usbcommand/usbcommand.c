@@ -144,6 +144,7 @@ static k4a_result_t populate_container_id(usbcmd_context_t *usbcmd)
 
     if (result != K4A_RESULT_SUCCEEDED)
     {
+        K4A_RESULT_FROM_LIBUSB(libusb_reset_device(usbcmd->libusb));
         LOG_ERROR("Failed to get BOS Descriptor - Infinitely hanging thread", 0);
         do
         {
