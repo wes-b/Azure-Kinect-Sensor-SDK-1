@@ -172,7 +172,7 @@ int main(int argc, char **argv)
     // get an image to be the background
     vector<k4a::capture> background_captures = capturer.get_synchronized_captures(secondary_config);
     cv::Mat background_image = color_to_opencv(background_captures[0].get_color_image());
-    cv::Mat output_image = background_image.clone(); // allocated outside the loop to avoid re-creating every time
+    cv::Mat output_image; // allocated outside the loop to avoid re-creating every time
 
     if (num_devices == 1)
     {
@@ -513,8 +513,24 @@ Transformation stereo_calibration(const k4a::calibration &main_calib,
         }
         char buffer[1024] = { 0 };
         snprintf(buffer, sizeof(buffer), "cv::stereoCalibrate returned an error of %f\n", error);
-
         fputs(buffer, file_handle);
+
+        cv::Matx44d tr4x4 = tr.to_homogeneous();
+        snprintf(buffer, sizeof(buffer), "Transformation calculated:\n");
+        fputs(buffer, file_handle);
+
+        snprintf(buffer, sizeof(buffer), "[%f, %f, %f, %f;\n", tr4x4(0, 0), tr4x4(0, 1), tr4x4(0, 2), tr4x4(0, 3));
+        fputs(buffer, file_handle);
+
+        snprintf(buffer, sizeof(buffer), " %f, %f, %f, %f;\n", tr4x4(1, 0), tr4x4(1, 1), tr4x4(1, 2), tr4x4(1, 3));
+        fputs(buffer, file_handle);
+
+        snprintf(buffer, sizeof(buffer), " %f, %f, %f, %f;\n", tr4x4(2, 0), tr4x4(2, 1), tr4x4(2, 2), tr4x4(2, 3));
+        fputs(buffer, file_handle);
+
+        snprintf(buffer, sizeof(buffer), " %f, %f, %f, %f)\n", tr4x4(3, 0), tr4x4(3, 1), tr4x4(3, 2), tr4x4(3, 3));
+        fputs(buffer, file_handle);
+
         fclose(file_handle);
     }
     return tr;
@@ -736,12 +752,13 @@ static Transformation calibrate_devices(MultiDeviceCapturer &capturer,
 
         vector<cv::Point2f> main_chessboard_corners;
         vector<cv::Point2f> secondary_chessboard_corners;
-        bool got_corners = find_chessboard_corners_helper(cv_main_color_image,
-                                                          cv_secondary_color_image,
-                                                          chessboard_pattern,
-                                                          main_chessboard_corners,
-                                                          secondary_chessboard_corners);
-        if (got_corners)
+        /*bool got_corners =*/find_chessboard_corners_helper(cv_main_color_image,
+                                                             cv_secondary_color_image,
+                                                             chessboard_pattern,
+                                                             main_chessboard_corners,
+                                                             secondary_chessboard_corners);
+
+        // if (got_corners)
         {
             {
                 image_to_file(main_color_image, "img\\ColorA", (int)main_chessboard_corners_list.size());
