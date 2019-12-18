@@ -3,9 +3,10 @@
 ### v1.4.0
 
 * On Windows Opencv-4.1.1 is now being used and tested.
-* CPP; Adding record.hpp, updated playback.hpp
-* Fixed small error in transformation functions
+* CPP; Adding record.hpp, updated playback.hpp.
+* Fixed small error in transformation functions.
 * Updated K4aRecorder to allow setting manual exposure based on exposure time.
+* Removed deprecated type K4A_COLOR_CONTROL_AUTO_EXPOSURE_PRIORITY.
 
 ### v1.3.0
 

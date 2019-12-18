@@ -4,6 +4,7 @@
 //************************ Includes *****************************
 #include <k4a/k4a.h>
 #include <k4ainternal/common.h>
+#include <k4ainternal/logging.h>
 #include <k4ainternal/../../src/color/color_priv.h>
 #include <utcommon.h>
 #include <gtest/gtest.h>
@@ -49,6 +50,58 @@ typedef enum _power_line_t
         ASSERT_EQ(mode, K4A_COLOR_CONTROL_MODE_MANUAL);                                                                \
         ASSERT_EQ(value, val);                                                                                         \
     }
+
+static k4a_result_t get_fresh_color_image(k4a_device_t device, k4a_image_t *image)
+{
+    k4a_wait_result_t wresult;
+    k4a_result_t result;
+    k4a_capture_t capture;
+    do
+    {
+        wresult = k4a_device_get_capture((device), &capture, 0);
+        if (wresult == K4A_WAIT_RESULT_SUCCEEDED)
+        {
+            k4a_capture_release(capture);
+        }
+        result = K4A_RESULT_FROM_BOOL(wresult != K4A_WAIT_RESULT_FAILED);
+    } while (wresult == K4A_WAIT_RESULT_SUCCEEDED);
+
+    if (K4A_SUCCEEDED(result))
+    {
+        // Throw away image that was comming over via USB
+        wresult = k4a_device_get_capture((device), &capture, 1000);
+        if (wresult == K4A_WAIT_RESULT_SUCCEEDED)
+        {
+            k4a_capture_release(capture);
+        }
+        result = K4A_RESULT_FROM_BOOL(wresult == K4A_WAIT_RESULT_SUCCEEDED);
+    }
+
+    if (K4A_SUCCEEDED(result))
+    {
+        // Throw away image that was in the firmware pipeline being read from the sensor
+        wresult = k4a_device_get_capture((device), &capture, 1000);
+        if (wresult == K4A_WAIT_RESULT_SUCCEEDED)
+        {
+            k4a_capture_release(capture);
+        }
+        result = K4A_RESULT_FROM_BOOL(wresult == K4A_WAIT_RESULT_SUCCEEDED);
+    }
+
+    if (K4A_SUCCEEDED(result))
+    {
+        // Use this image
+        wresult = k4a_device_get_capture((device), &capture, 1000);
+        if (wresult == K4A_WAIT_RESULT_SUCCEEDED)
+        {
+            *image = k4a_capture_get_color_image(capture);
+            k4a_capture_release(capture);
+        }
+        result = K4A_RESULT_FROM_BOOL(wresult == K4A_WAIT_RESULT_SUCCEEDED);
+    }
+    return result;
+}
+
 //******************* Function Prototypes ***********************
 
 //*********************** Functions *****************************
@@ -782,10 +835,10 @@ void color_control_test::control_test_worker(const k4a_color_control_command_t c
     k4a_device_configuration_t config = K4A_DEVICE_CONFIG_INIT_DISABLE_ALL;
 
     // 50% of the time we should test with the camera running
-    if ((rand() * 2 / RAND_MAX) >= 1)
+    if (RAND_VALUE(1, 2) == 1)
     {
         config = K4A_DEVICE_CONFIG_INIT_DISABLE_ALL;
-        config.camera_fps = K4A_FRAMES_PER_SECOND_5;
+        config.camera_fps = K4A_FRAMES_PER_SECOND_30;
         config.color_format = K4A_IMAGE_FORMAT_COLOR_MJPG;
         config.color_resolution = K4A_COLOR_RESOLUTION_1080P;
         config.depth_mode = K4A_DEPTH_MODE_WFOV_2X2BINNED;
@@ -857,6 +910,13 @@ void color_control_test::control_test_worker(const k4a_color_control_command_t c
             {
                 ASSERT_TRUE(validate_image_exposure_setting(value, b_sixty_hertz, config.camera_fps)) << "1";
             }
+            if (cameras_running)
+            {
+                k4a_image_t image;
+                ASSERT_EQ(K4A_RESULT_SUCCEEDED, get_fresh_color_image(m_device, &image));
+                std::cout << "ISO " << k4a_image_get_iso_speed(image) << "\n";
+                k4a_image_release(image);
+            }
 
             testValue = threshold;
             ASSERT_EQ(K4A_RESULT_SUCCEEDED, k4a_device_set_color_control(m_device, command, manual, testValue));
@@ -867,6 +927,13 @@ void color_control_test::control_test_worker(const k4a_color_control_command_t c
             {
                 ASSERT_TRUE(validate_image_exposure_setting(value, b_sixty_hertz, config.camera_fps)) << "2";
             }
+            if (cameras_running)
+            {
+                k4a_image_t image;
+                ASSERT_EQ(K4A_RESULT_SUCCEEDED, get_fresh_color_image(m_device, &image));
+                std::cout << "ISO " << k4a_image_get_iso_speed(image) << "\n";
+                k4a_image_release(image);
+            }
 
             testValue = threshold + 1;
             ASSERT_EQ(K4A_RESULT_SUCCEEDED, k4a_device_set_color_control(m_device, command, manual, testValue));
@@ -876,6 +943,13 @@ void color_control_test::control_test_worker(const k4a_color_control_command_t c
             if (cameras_running)
             {
                 ASSERT_TRUE(validate_image_exposure_setting(value, b_sixty_hertz, config.camera_fps)) << "3";
+            }
+            if (cameras_running)
+            {
+                k4a_image_t image;
+                ASSERT_EQ(K4A_RESULT_SUCCEEDED, get_fresh_color_image(m_device, &image));
+                std::cout << "ISO " << k4a_image_get_iso_speed(image) << "\n";
+                k4a_image_release(image);
             }
 
             ASSERT_EQ(current_mode, manual);
@@ -901,12 +975,33 @@ void color_control_test::control_test_worker(const k4a_color_control_command_t c
         // Test valid range
         for (int32_t testValue = min_value; testValue <= max_value; testValue += step_value)
         {
+            // std::cout << "min, max, step, value " << min_value << " " << max_value << " " << step_value << " "
+            //           << testValue << "\n";
             // Set test value
             ASSERT_EQ(K4A_RESULT_SUCCEEDED,
                       k4a_device_set_color_control(m_device, command, K4A_COLOR_CONTROL_MODE_MANUAL, testValue));
             ASSERT_EQ(K4A_RESULT_SUCCEEDED, k4a_device_get_color_control(m_device, command, &current_mode, &value));
             ASSERT_EQ(current_mode, K4A_COLOR_CONTROL_MODE_MANUAL);
             ASSERT_EQ(value, testValue);
+
+            if (cameras_running)
+            {
+                // if (command == K4A_COLOR_CONTROL_WHITEBALANCE)
+                // {
+                //     k4a_image_t image;
+                //     ASSERT_EQ(K4A_RESULT_SUCCEEDED, get_fresh_color_image(m_device, &image));
+                //     uint32_t white_bal = k4a_image_get_white_balance(image);
+                //     ASSERT_EQ(white_bal, (uint32_t)testValue);
+                //     k4a_image_release(image);
+                // }
+                if (cameras_running)
+                {
+                    k4a_image_t image;
+                    ASSERT_EQ(K4A_RESULT_SUCCEEDED, get_fresh_color_image(m_device, &image));
+                    std::cout << "ISO " << k4a_image_get_iso_speed(image) << "\n";
+                    k4a_image_release(image);
+                }
+            }
         }
     }
 

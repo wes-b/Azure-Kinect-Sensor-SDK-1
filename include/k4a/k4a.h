@@ -987,6 +987,11 @@ K4A_EXPORT uint32_t k4a_image_get_white_balance(k4a_image_t image_handle);
  * \remarks
  * This function is only valid for color captures, and not for depth  or IR captures.
  *
+ * \remarks
+ * The color camera's ISO setting is a read only camera property. It is automatically updated by the firmware when
+ * K4A_COLOR_CONTROL_EXPOSURE_TIME_ABSOLUTE is set to auto mode. When K4A_COLOR_CONTROL_EXPOSURE_TIME_ABSOLUTE is set to
+ * manual mode, the camera's ISO setting also becomes fixed to the value it was last set to.
+ *
  * \returns
  * Returns the ISO speed of the image. 0 indicates the ISO speed was not available or an error occurred.
  *
