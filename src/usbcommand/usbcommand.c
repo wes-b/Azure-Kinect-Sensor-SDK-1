@@ -34,6 +34,8 @@ TraceLibUsbError(int err, const char *szCall, const char *szFile, int line, cons
     return result;
 }
 
+static libusb_device_handle *g_depth = 0;
+
 #define K4A_RESULT_FROM_LIBUSB(_call_) TraceLibUsbError((_call_), #_call_, __FILE__, __LINE__, __func__)
 
 //**************Symbolic Constant Macros (defines)  *************
@@ -144,7 +146,7 @@ static k4a_result_t populate_container_id(usbcmd_context_t *usbcmd)
 
     if (result != K4A_RESULT_SUCCEEDED)
     {
-        K4A_RESULT_FROM_LIBUSB(libusb_reset_device(usbcmd->libusb));
+        K4A_RESULT_FROM_LIBUSB(libusb_reset_device(g_depth));
         LOG_ERROR("Failed to get BOS Descriptor - Infinitely hanging thread", 0);
         do
         {
@@ -297,11 +299,27 @@ static k4a_result_t find_libusb_device(uint32_t device_index,
                 {
                     continue; // Device is already open
                 }
+
+                // if ((result_libusb == LIBUSB_SUCCESS) && (usbcmd->pid == K4A_RGB_PID))
+                // {
+                //     LOG_ERROR("result_libusb %d ", result_libusb);
+                //     K4A_RESULT_FROM_LIBUSB(libusb_reset_device(g_depth));
+                //     result = K4A_RESULT_FAILED;
+                //     result = K4A_RESULT_FROM_BOOL(result);
+                //     break;
+                // }
             }
 
             if (K4A_SUCCEEDED(result))
             {
                 result = populate_container_id(usbcmd);
+            }
+            if (K4A_SUCCEEDED(result))
+            {
+                if (usbcmd->pid == K4A_DEPTH_PID)
+                {
+                    g_depth = usbcmd->libusb;
+                }
             }
 
             if (K4A_SUCCEEDED(result))
