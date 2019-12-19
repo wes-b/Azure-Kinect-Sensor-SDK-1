@@ -986,21 +986,22 @@ void color_control_test::control_test_worker(const k4a_color_control_command_t c
 
             if (cameras_running)
             {
-                // if (command == K4A_COLOR_CONTROL_WHITEBALANCE)
-                // {
-                //     k4a_image_t image;
-                //     ASSERT_EQ(K4A_RESULT_SUCCEEDED, get_fresh_color_image(m_device, &image));
-                //     uint32_t white_bal = k4a_image_get_white_balance(image);
-                //     ASSERT_EQ(white_bal, (uint32_t)testValue);
-                //     k4a_image_release(image);
-                // }
-                if (cameras_running)
+                if (command == K4A_COLOR_CONTROL_WHITEBALANCE)
                 {
                     k4a_image_t image;
                     ASSERT_EQ(K4A_RESULT_SUCCEEDED, get_fresh_color_image(m_device, &image));
-                    std::cout << "ISO " << k4a_image_get_iso_speed(image) << "\n";
+                    uint32_t white_bal = k4a_image_get_white_balance(image);
+                    std::cout << "white_bal value is " << white_bal << "\n ";
+                    ASSERT_EQ(white_bal, (uint32_t)testValue);
                     k4a_image_release(image);
                 }
+                // if (cameras_running)
+                // {
+                //     k4a_image_t image;
+                //     ASSERT_EQ(K4A_RESULT_SUCCEEDED, get_fresh_color_image(m_device, &image));
+                //     std::cout << "ISO " << k4a_image_get_iso_speed(image) << "\n";
+                //     k4a_image_release(image);
+                // }
             }
         }
     }
