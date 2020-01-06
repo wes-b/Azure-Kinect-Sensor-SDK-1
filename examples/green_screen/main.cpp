@@ -368,12 +368,17 @@ bool find_chessboard_corners_helper(const cv::Mat &main_color_image,
                                     vector<cv::Point2f> &main_chessboard_corners,
                                     vector<cv::Point2f> &secondary_chessboard_corners)
 {
-    bool found_chessboard_main = cv::findChessboardCorners(main_color_image,
-                                                           chessboard_pattern,
-                                                           main_chessboard_corners);
-    bool found_chessboard_secondary = cv::findChessboardCorners(secondary_color_image,
-                                                                chessboard_pattern,
-                                                                secondary_chessboard_corners);
+
+    bool found_chessboard_main = false;
+    bool found_chessboard_secondary = false;
+
+    found_chessboard_main = cv::findChessboardCorners(main_color_image, chessboard_pattern, main_chessboard_corners);
+    if (found_chessboard_main)
+    {
+        found_chessboard_secondary = cv::findChessboardCorners(secondary_color_image,
+                                                               chessboard_pattern,
+                                                               secondary_chessboard_corners);
+    }
 
     // Cover the failure cases where chessboards were not found in one or both images.
     if (!found_chessboard_main || !found_chessboard_secondary)
@@ -427,6 +432,25 @@ bool find_chessboard_corners_helper(const cv::Mat &main_color_image,
     }
     return true;
 }
+
+#if 1
+cv::Matx44d combine_transforms_w(cv::Mat rmat, cv::Mat tvec)
+{
+    cv::Matx44d transform = cv::Matx44d::eye();
+    for (int r = 0; r < 3; r++)
+    {
+        for (int c = 0; c < 3; c++)
+        {
+            transform(r, c) = rmat.at<double>(r, c);
+        }
+    }
+    for (int i = 0; i < 3; i++)
+    {
+        transform(i, 3) = tvec.at<double>(i);
+    }
+    return transform;
+}
+#endif
 
 Transformation stereo_calibration(const k4a::calibration &main_calib,
                                   const k4a::calibration &secondary_calib,
@@ -488,24 +512,27 @@ Transformation stereo_calibration(const k4a::calibration &main_calib,
     // Finally, we'll actually calibrate the cameras.
     // Pass secondary first, then main, because we want a transform from secondary to main.
     Transformation tr;
-    double error = cv::stereoCalibrate(chessboard_corners_world_nested_for_cv,
-                                       secondary_chessboard_corners_list,
-                                       main_chessboard_corners_list,
-                                       secondary_camera_matrix,
-                                       secondary_dist_coeff,
-                                       main_camera_matrix,
-                                       main_dist_coeff,
-                                       image_size,
-                                       tr.R, // output
-                                       tr.t, // output
-                                       cv::noArray(),
-                                       cv::noArray(),
-                                       cv::CALIB_FIX_INTRINSIC | cv::CALIB_RATIONAL_MODEL | cv::CALIB_CB_FAST_CHECK);
-    cout << "Finished calibrating!\n";
-    cout << "Got error of " << error << "\n";
-
     {
-        FILE *file_handle = fopen("img\\cal_results.txt", "a");
+        //        cout << "Starting stereoCalibrate!\n";
+        double error = cv::stereoCalibrate(chessboard_corners_world_nested_for_cv,
+                                           secondary_chessboard_corners_list,
+                                           main_chessboard_corners_list,
+                                           secondary_camera_matrix,
+                                           secondary_dist_coeff,
+                                           main_camera_matrix,
+                                           main_dist_coeff,
+                                           image_size,
+                                           tr.R, // output
+                                           tr.t, // output
+                                           cv::noArray(),
+                                           cv::noArray(),
+                                           cv::CALIB_FIX_INTRINSIC | cv::CALIB_RATIONAL_MODEL |
+                                               cv::CALIB_CB_FAST_CHECK);
+        cout << "Finished calibrating!\n";
+        cout << "Got error of " << error << "\n";
+
+#if 1
+        FILE *file_handle = fopen("img\\cal_results_stereoCalibrate.txt", "a");
         if (file_handle == NULL)
         {
             cerr << "file handle null for  %s\n";
@@ -532,7 +559,74 @@ Transformation stereo_calibration(const k4a::calibration &main_calib,
         fputs(buffer, file_handle);
 
         fclose(file_handle);
+#endif
     }
+#if 1
+    {
+        vector<cv::Point3f> chessboard_corners_world_1;
+        for (int h = 0; h < chessboard_pattern.height; ++h)
+        {
+            for (int w = 0; w < chessboard_pattern.width; ++w)
+            {
+                chessboard_corners_world_1.emplace_back(
+                    cv::Point3f{ w * chessboard_square_length, h * chessboard_square_length, 0.0 });
+            }
+        }
+
+        cout << "Starting solvePnP1!\n";
+        cv::Mat main_rvec, main_tvec, main_rmat;
+        cv::solvePnP(chessboard_corners_world_1,
+                     main_chessboard_corners_list,
+                     main_camera_matrix,
+                     main_dist_coeff,
+                     main_rvec,
+                     main_tvec);
+        cv::Rodrigues(main_rvec, main_rmat);
+        cv::Matx44d main_rmat_4x4 = combine_transforms_w(main_rmat, main_tvec);
+
+        cv::Mat second_rvec, second_tvec, second_rmat;
+        cout << "Starting solvePnP2!\n";
+        cv::solvePnP(chessboard_corners_world_1,
+                     secondary_chessboard_corners_list,
+                     secondary_camera_matrix,
+                     secondary_dist_coeff,
+                     second_rvec,
+                     second_tvec);
+        cv::Rodrigues(second_rvec, second_rmat);
+        cv::Matx44d second_rmat_4x4 = combine_transforms_w(second_rmat, second_tvec);
+        cout << "solvePnP Done!\n";
+
+        cv::Matx44d tr4x4 = main_rmat_4x4 * second_rmat_4x4.inv();
+
+        FILE *file_handle = fopen("img\\cal_results_solvePnP.txt", "a");
+        if (file_handle == NULL)
+        {
+            cerr << "file handle null for  %s\n";
+            exit(1);
+        }
+        char buffer[1024] = { 0 };
+        snprintf(buffer, sizeof(buffer), "cv::SolvePnP returned an error of N/A\n");
+        fputs(buffer, file_handle);
+
+        // cv::Matx44d tr4x4 = tr.to_homogeneous();
+        snprintf(buffer, sizeof(buffer), "Transformation calculated:\n");
+        fputs(buffer, file_handle);
+
+        snprintf(buffer, sizeof(buffer), "[%f, %f, %f, %f;\n", tr4x4(0, 0), tr4x4(0, 1), tr4x4(0, 2), tr4x4(0, 3));
+        fputs(buffer, file_handle);
+
+        snprintf(buffer, sizeof(buffer), " %f, %f, %f, %f;\n", tr4x4(1, 0), tr4x4(1, 1), tr4x4(1, 2), tr4x4(1, 3));
+        fputs(buffer, file_handle);
+
+        snprintf(buffer, sizeof(buffer), " %f, %f, %f, %f;\n", tr4x4(2, 0), tr4x4(2, 1), tr4x4(2, 2), tr4x4(2, 3));
+        fputs(buffer, file_handle);
+
+        snprintf(buffer, sizeof(buffer), " %f, %f, %f, %f)\n", tr4x4(3, 0), tr4x4(3, 1), tr4x4(3, 2), tr4x4(3, 3));
+        fputs(buffer, file_handle);
+
+        fclose(file_handle);
+    }
+#endif
     return tr;
 }
 
@@ -586,6 +680,7 @@ static k4a_device_configuration_t get_subordinate_config()
     return camera_config;
 }
 
+#if 0
 static void image_to_file(const k4a::image &im, char *file_path, int image_num)
 {
     char buffer[1024];
@@ -691,6 +786,7 @@ static void image_to_file(const k4a::image &im, char *file_path, int image_num)
     // fputs((const char *)im.get_buffer(), file_handle);
     // fclose(file_handle);
 }
+#endif
 
 static Transformation calibrate_devices(MultiDeviceCapturer &capturer,
                                         const k4a_device_configuration_t &main_config,
@@ -709,6 +805,7 @@ static Transformation calibrate_devices(MultiDeviceCapturer &capturer,
     vector<vector<cv::Point2f>> secondary_chessboard_corners_list;
     std::chrono::time_point<std::chrono::system_clock> start_time = std::chrono::system_clock::now();
 
+#if 1
     {
         {
             FILE *file_handle = fopen("img\\cal_main.json", "a");
@@ -734,11 +831,12 @@ static Transformation calibrate_devices(MultiDeviceCapturer &capturer,
             fclose(file_handle);
         }
     }
+#endif
 
     while (std::chrono::duration<double>(std::chrono::system_clock::now() - start_time).count() < calibration_timeout)
     {
         printf("Waiting for input, so far %d have been processed\n", (int)main_chessboard_corners_list.size());
-        getchar();
+        // getchar();
 
         vector<k4a::capture> captures = capturer.get_synchronized_captures(secondary_config);
         k4a::capture &main_capture = captures[0];
@@ -752,21 +850,21 @@ static Transformation calibrate_devices(MultiDeviceCapturer &capturer,
 
         vector<cv::Point2f> main_chessboard_corners;
         vector<cv::Point2f> secondary_chessboard_corners;
-        /*bool got_corners =*/find_chessboard_corners_helper(cv_main_color_image,
-                                                             cv_secondary_color_image,
-                                                             chessboard_pattern,
-                                                             main_chessboard_corners,
-                                                             secondary_chessboard_corners);
+        bool got_corners = find_chessboard_corners_helper(cv_main_color_image,
+                                                          cv_secondary_color_image,
+                                                          chessboard_pattern,
+                                                          main_chessboard_corners,
+                                                          secondary_chessboard_corners);
 
-        // if (got_corners)
+        if (got_corners)
         {
             {
-                image_to_file(main_color_image, "img\\ColorA", (int)main_chessboard_corners_list.size());
-                image_to_file(secondary_color_image, "img\\ColorB", (int)main_chessboard_corners_list.size());
-                image_to_file(main_capture.get_depth_image(), "img\\DepthA", (int)main_chessboard_corners_list.size());
-                image_to_file(secondary_capture.get_depth_image(),
-                              "img\\DepthB",
-                              (int)main_chessboard_corners_list.size());
+                // image_to_file(main_color_image, "img\\ColorA", (int)main_chessboard_corners_list.size());
+                // image_to_file(secondary_color_image, "img\\ColorB", (int)main_chessboard_corners_list.size());
+                // image_to_file(main_capture.get_depth_image(), "img\\DepthA",
+                // (int)main_chessboard_corners_list.size()); image_to_file(secondary_capture.get_depth_image(),
+                //               "img\\DepthB",
+                //               (int)main_chessboard_corners_list.size());
             }
             main_chessboard_corners_list.emplace_back(main_chessboard_corners);
             secondary_chessboard_corners_list.emplace_back(secondary_chessboard_corners);
