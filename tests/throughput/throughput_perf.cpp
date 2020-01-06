@@ -28,6 +28,8 @@ static int g_capture_count = 100;
 static bool g_synchronized_images_only = false;
 static bool g_no_imu = false;
 static bool g_no_startup_flush = false;
+static bool g_pos_delay = false;
+static bool g_neg_delay = false;
 static uint32_t g_subordinate_delay_off_master_usec = 0;
 static bool g_manual_exposure = false;
 static uint32_t g_exposure_setting = 0;
@@ -302,8 +304,19 @@ TEST_P(throughput_perf, testTest)
     config.subordinate_delay_off_master_usec = g_subordinate_delay_off_master_usec;
     if (g_depth_delay_off_color_usec == 0)
     {
-        // Create delay that can be +fps to -fps
-        config.depth_delay_off_color_usec = (int32_t)RAND_VALUE(-fps_in_usec, fps_in_usec);
+        if (g_pos_delay)
+        {
+            config.depth_delay_off_color_usec = (int32_t)RAND_VALUE(1, fps_in_usec);
+        }
+        else if (g_neg_delay)
+        {
+            config.depth_delay_off_color_usec = (int32_t)RAND_VALUE(-fps_in_usec, -1);
+        }
+        else
+        {
+            // Create delay that can be +fps to -fps
+            config.depth_delay_off_color_usec = (int32_t)RAND_VALUE(-fps_in_usec, fps_in_usec);
+        }
     }
 
     max_sync_delay = k4a_unittest_get_max_sync_delay_ms(as.fps);
@@ -859,6 +872,16 @@ int main(int argc, char **argv)
             g_no_startup_flush = true;
             printf("g_no_startup_flush = true\n");
         }
+        else if (strcmp(argument, "--pos") == 0)
+        {
+            g_pos_delay = true;
+            printf("g_pos_delay = true\n");
+        }
+        else if (strcmp(argument, "--neg") == 0)
+        {
+            g_neg_delay = true;
+            printf("g_neg_delay = true\n");
+        }
         else if (strcmp(argument, "--60hz") == 0)
         {
             g_power_line_50_hz = false;
@@ -973,6 +996,8 @@ int main(int argc, char **argv)
         printf("      <default> Sets the power line compensation frequency to 60Hz\n");
         printf("  --50hz\n");
         printf("      Sets the power line compensation frequency to 50Hz\n");
+        printf("  --pos, --neg\n");
+        printf("      pos or neg value for g_depth_delay_off_color_usec\n");
 
         return 1; // Indicates an error or warning
     }
