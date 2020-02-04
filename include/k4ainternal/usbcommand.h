@@ -145,6 +145,11 @@ k4a_result_t usb_cmd_get_device_count(uint32_t *p_device_count);
 
 const guid_t *usb_cmd_get_container_id(usbcmd_t usbcmd_handle);
 
+#define USB_CMD_TRACE_READ_IN(command) LOG_ERROR("+READ CMD::%s", command);
+#define USB_CMD_TRACE_READ_OUT(command) LOG_ERROR("-READ CMD::%s", command);
+#define USB_CMD_TRACE_WRITE_IN(command) LOG_ERROR("+WRITE CMD::%s", command);
+#define USB_CMD_TRACE_WRITE_OUT(command) LOG_ERROR("-WRITE CMD::%s", command);
+
 #ifdef __cplusplus
 } // namespace k4a
 #endif

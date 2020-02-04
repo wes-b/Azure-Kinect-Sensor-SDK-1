@@ -116,6 +116,7 @@ k4a_buffer_result_t depthmcu_get_serialnum(depthmcu_t depthmcu_handle, char *ser
     char temp_serial_number[256];
     size_t bytes_read = 0;
 
+    USB_CMD_TRACE_READ_IN("DEV_CMD_DEPTH_READ_PRODUCT_SN");
     result = TRACE_CALL(
         usb_cmd_read(depthmcu->usb_cmd,
                      DEV_CMD_DEPTH_READ_PRODUCT_SN,
@@ -124,6 +125,7 @@ k4a_buffer_result_t depthmcu_get_serialnum(depthmcu_t depthmcu_handle, char *ser
                      (uint8_t *)temp_serial_number,
                      sizeof(temp_serial_number) - 1 /* Leave enough space the NULL terminate if needed */,
                      &bytes_read));
+    USB_CMD_TRACE_READ_OUT("DEV_CMD_DEPTH_READ_PRODUCT_SN");
 
     if (K4A_FAILED(result))
     {
@@ -187,6 +189,7 @@ bool depthmcu_wait_is_ready(depthmcu_t depthmcu_handle)
 
     do
     {
+        USB_CMD_TRACE_READ_IN("DEV_CMD_COMPONENT_VERSION_GET");
         result = TRACE_CALL(usb_cmd_read_with_status(depthmcu->usb_cmd,
                                                      DEV_CMD_COMPONENT_VERSION_GET,
                                                      NULL,
@@ -195,6 +198,7 @@ bool depthmcu_wait_is_ready(depthmcu_t depthmcu_handle)
                                                      sizeof(tmpVersion),
                                                      &bytes_read,
                                                      &cmd_status));
+        USB_CMD_TRACE_READ_OUT("DEV_CMD_COMPONENT_VERSION_GET");
 
         if (K4A_SUCCEEDED(result) && cmd_status != CMD_STATUS_PASS)
         {
@@ -224,6 +228,7 @@ k4a_result_t depthmcu_get_version(depthmcu_t depthmcu_handle, depthmcu_firmware_
     depthmcu_firmware_versions_t tmpVersion = { 0 };
     size_t bytes_read = 0;
 
+    USB_CMD_TRACE_READ_IN("DEV_CMD_COMPONENT_VERSION_GET");
     k4a_result_t result = TRACE_CALL(usb_cmd_read(depthmcu->usb_cmd,
                                                   DEV_CMD_COMPONENT_VERSION_GET,
                                                   NULL,
@@ -231,6 +236,7 @@ k4a_result_t depthmcu_get_version(depthmcu_t depthmcu_handle, depthmcu_firmware_
                                                   (uint8_t *)&tmpVersion,
                                                   sizeof(tmpVersion),
                                                   &bytes_read));
+    USB_CMD_TRACE_READ_OUT("DEV_CMD_COMPONENT_VERSION_GET");
 
     if (K4A_SUCCEEDED(result))
     {
@@ -281,8 +287,11 @@ k4a_result_t depthmcu_depth_set_capture_mode(depthmcu_t depthmcu_handle, k4a_dep
     }
 
     // send command (Note, sensor MUST be in the ON state)
-    return TRACE_CALL(
+    USB_CMD_TRACE_WRITE_IN("DEV_CMD_DEPTH_MODE_SET");
+    k4a_result_t result = TRACE_CALL(
         usb_cmd_write(depthmcu->usb_cmd, DEV_CMD_DEPTH_MODE_SET, (uint8_t *)&mode, sizeof(mode), NULL, 0));
+    USB_CMD_TRACE_WRITE_OUT("DEV_CMD_DEPTH_MODE_SET");
+    return result;
 }
 
 k4a_result_t depthmcu_depth_set_fps(depthmcu_t depthmcu_handle, k4a_fps_t capture_fps)
@@ -309,7 +318,11 @@ k4a_result_t depthmcu_depth_set_fps(depthmcu_t depthmcu_handle, k4a_fps_t captur
     }
 
     // Send command (Note, sensor MUST be in the ON state)
-    return TRACE_CALL(usb_cmd_write(depthmcu->usb_cmd, DEV_CMD_DEPTH_FPS_SET, (uint8_t *)&fps, sizeof(fps), NULL, 0));
+    USB_CMD_TRACE_WRITE_IN("DEV_CMD_DEPTH_FPS_SET");
+    k4a_result_t result = TRACE_CALL(
+        usb_cmd_write(depthmcu->usb_cmd, DEV_CMD_DEPTH_FPS_SET, (uint8_t *)&fps, sizeof(fps), NULL, 0));
+    USB_CMD_TRACE_WRITE_OUT("DEV_CMD_DEPTH_FPS_SET");
+    return result;
 }
 
 k4a_result_t depthmcu_depth_start_streaming(depthmcu_t depthmcu_handle,
@@ -324,18 +337,24 @@ k4a_result_t depthmcu_depth_start_streaming(depthmcu_t depthmcu_handle,
     depthmcu->callback_context = callback_context;
 
     // Send start sensor command (Note, sensor MUST be in the ON state)
+    USB_CMD_TRACE_WRITE_IN("DEV_CMD_DEPTH_START");
     result = TRACE_CALL(usb_cmd_write(depthmcu->usb_cmd, DEV_CMD_DEPTH_START, NULL, 0, NULL, 0));
+    USB_CMD_TRACE_WRITE_OUT("DEV_CMD_DEPTH_START");
 
     if (K4A_SUCCEEDED(result))
     {
         // Send start streaming command (Note, sensor MUST be in the ON state)
+        USB_CMD_TRACE_WRITE_IN("DEV_CMD_DEPTH_STREAM_START");
         result = TRACE_CALL(usb_cmd_write(depthmcu->usb_cmd, DEV_CMD_DEPTH_STREAM_START, NULL, 0, NULL, 0));
+        USB_CMD_TRACE_WRITE_OUT("DEV_CMD_DEPTH_STREAM_START");
     }
 
     if (K4A_SUCCEEDED(result))
     {
         // Start the streaming thread
+        USB_CMD_TRACE_READ_IN("usb_cmd_stream_start");
         result = TRACE_CALL(usb_cmd_stream_start(depthmcu->usb_cmd, depthmcu->payload_size));
+        USB_CMD_TRACE_READ_OUT("usb_cmd_stream_start");
     }
 
     return result;
@@ -352,8 +371,10 @@ void depthmcu_depth_stop_streaming(depthmcu_t depthmcu_handle, bool quiet)
     TRACE_CALL(usb_cmd_stream_stop(depthmcu->usb_cmd));
 
     // Send stop stream command (Note, sensor MUST be in the ON state)
+    USB_CMD_TRACE_WRITE_IN("DEV_CMD_DEPTH_STREAM_STOP");
     result = TRACE_CALL(
         usb_cmd_write_with_status(depthmcu->usb_cmd, DEV_CMD_DEPTH_STREAM_STOP, NULL, 0, NULL, 0, &cmd_status));
+    USB_CMD_TRACE_WRITE_OUT("DEV_CMD_DEPTH_STREAM_STOP");
     if (K4A_SUCCEEDED(result) && (!quiet))
     {
         result = K4A_RESULT_FROM_BOOL(cmd_status == CMD_STATUS_PASS);
@@ -364,8 +385,10 @@ void depthmcu_depth_stop_streaming(depthmcu_t depthmcu_handle, bool quiet)
     }
 
     // Send stop sensor command (Note, sensor MUST be in the ON state)
+    USB_CMD_TRACE_WRITE_IN("DEV_CMD_DEPTH_STOP");
     result = TRACE_CALL(
         usb_cmd_write_with_status(depthmcu->usb_cmd, DEV_CMD_DEPTH_STOP, NULL, 0, NULL, 0, &cmd_status));
+    USB_CMD_TRACE_WRITE_OUT("DEV_CMD_DEPTH_STOP");
     if (K4A_SUCCEEDED(result) && (!quiet))
     {
         result = K4A_RESULT_FROM_BOOL(cmd_status == CMD_STATUS_PASS);
@@ -385,8 +408,10 @@ k4a_result_t depthmcu_get_cal(depthmcu_t depthmcu_handle, uint8_t *calibration, 
     k4a_result_t result;
 
     // Send get calibration data command (Note, sensor MUST be in the ON state)
+    USB_CMD_TRACE_READ_IN("DEVICE_NV_IR_SENSOR_CALIBRATION");
     result = TRACE_CALL(usb_cmd_read(
         depthmcu->usb_cmd, DEV_CMD_NV_DATA_GET, (uint8_t *)&nv_tag, sizeof(nv_tag), calibration, cal_size, bytes_read));
+    USB_CMD_TRACE_READ_OUT("DEVICE_NV_IR_SENSOR_CALIBRATION");
 
     if (K4A_SUCCEEDED(result))
     {
@@ -408,8 +433,11 @@ depthmcu_get_extrinsic_calibration(depthmcu_t depthmcu_handle, char *json, size_
     RETURN_VALUE_IF_ARG(K4A_RESULT_FAILED, bytes_read == NULL);
     depthmcu_context_t *depthmcu = depthmcu_t_get_context(depthmcu_handle);
 
-    return TRACE_CALL(usb_cmd_read(
+    USB_CMD_TRACE_READ_IN("DEVICE_NV_IR_SENSOR_CALIBRATION");
+    k4a_result_t result = TRACE_CALL(usb_cmd_read(
         depthmcu->usb_cmd, DEV_CMD_DEPTH_READ_CALIBRATION_DATA, NULL, 0, (uint8_t *)json, json_size, bytes_read));
+    USB_CMD_TRACE_READ_OUT("DEV_CMD_DEPTH_READ_CALIBRATION_DATA");
+    return result;
 }
 
 k4a_result_t depthmcu_download_firmware(depthmcu_t depthmcu_handle, uint8_t *firmwarePayload, size_t firmwareSize)
@@ -431,8 +459,10 @@ k4a_result_t depthmcu_download_firmware(depthmcu_t depthmcu_handle, uint8_t *fir
     // The firmware is not checking this.
     info.package_size = (uint8_t)firmwareSize;
 
+    USB_CMD_TRACE_WRITE_IN("DEV_CMD_DOWNLOAD_FIRMWARE");
     result = TRACE_CALL(usb_cmd_write(
         depthmcu->usb_cmd, DEV_CMD_DOWNLOAD_FIRMWARE, (uint8_t *)&info, sizeof(info), firmwarePayload, firmwareSize));
+    USB_CMD_TRACE_WRITE_OUT("DEV_CMD_DOWNLOAD_FIRMWARE");
 
     LOG_INFO("Writing firmware to Depth MCU complete.", 0);
     return result;
@@ -445,13 +475,16 @@ k4a_result_t depthmcu_get_firmware_update_status(depthmcu_t depthmcu_handle,
     RETURN_VALUE_IF_ARG(K4A_RESULT_FAILED, update_status == NULL);
     depthmcu_context_t *depthmcu = depthmcu_t_get_context(depthmcu_handle);
 
-    return TRACE_CALL(usb_cmd_read(depthmcu->usb_cmd,
-                                   DEV_CMD_GET_FIRMWARE_UPDATE_STATUS,
-                                   NULL,
-                                   0,
-                                   (uint8_t *)update_status,
-                                   sizeof(depthmcu_firmware_update_status_t),
-                                   NULL));
+    USB_CMD_TRACE_READ_IN("DEV_CMD_GET_FIRMWARE_UPDATE_STATUS");
+    k4a_result_t result = TRACE_CALL(usb_cmd_read(depthmcu->usb_cmd,
+                                                  DEV_CMD_GET_FIRMWARE_UPDATE_STATUS,
+                                                  NULL,
+                                                  0,
+                                                  (uint8_t *)update_status,
+                                                  sizeof(depthmcu_firmware_update_status_t),
+                                                  NULL));
+    USB_CMD_TRACE_READ_OUT("DEV_CMD_GET_FIRMWARE_UPDATE_STATUS");
+    return result;
 }
 
 k4a_result_t depthmcu_reset_device(depthmcu_t depthmcu_handle)
@@ -459,7 +492,10 @@ k4a_result_t depthmcu_reset_device(depthmcu_t depthmcu_handle)
     RETURN_VALUE_IF_HANDLE_INVALID(K4A_RESULT_FAILED, depthmcu_t, depthmcu_handle);
     depthmcu_context_t *depthmcu = depthmcu_t_get_context(depthmcu_handle);
 
-    return TRACE_CALL(usb_cmd_write(depthmcu->usb_cmd, DEV_CMD_RESET, NULL, 0, NULL, 0));
+    USB_CMD_TRACE_WRITE_IN("DEV_CMD_RESET");
+    k4a_result_t result = TRACE_CALL(usb_cmd_write(depthmcu->usb_cmd, DEV_CMD_RESET, NULL, 0, NULL, 0));
+    USB_CMD_TRACE_WRITE_OUT("DEV_CMD_RESET");
+    return result;
 }
 
 const guid_t *depthmcu_get_container_id(depthmcu_t depthmcu_handle)

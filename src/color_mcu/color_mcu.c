@@ -124,7 +124,9 @@ k4a_result_t colormcu_imu_start_streaming(colormcu_t colormcu_handle)
     colormcu_context_t *colormcu = colormcu_t_get_context(colormcu_handle);
 
     // Send command to start the IMU on the device
+    USB_CMD_TRACE_WRITE_IN("DEV_CMD_IMU_STREAM_START");
     k4a_result_t result = TRACE_CALL(usb_cmd_write(colormcu->usb_cmd, DEV_CMD_IMU_STREAM_START, NULL, 0, NULL, 0));
+    USB_CMD_TRACE_WRITE_OUT("DEV_CMD_IMU_STREAM_START");
 
     if (K4A_SUCCEEDED(result))
     {
@@ -151,7 +153,9 @@ void colormcu_imu_stop_streaming(colormcu_t colormcu_handle)
     TRACE_CALL(usb_cmd_stream_stop(colormcu->usb_cmd));
 
     // Send the stop command
+    USB_CMD_TRACE_WRITE_IN("DEV_CMD_IMU_STREAM_STOP");
     TRACE_CALL(usb_cmd_write(colormcu->usb_cmd, DEV_CMD_IMU_STREAM_STOP, NULL, 0, NULL, 0));
+    USB_CMD_TRACE_WRITE_OUT("DEV_CMD_IMU_STREAM_STOP");
 }
 
 /**
@@ -210,8 +214,10 @@ k4a_result_t colormcu_get_external_sync_jack_state(colormcu_t colormcu_handle,
     uint8_t state;
     size_t bytes_read;
 
+    USB_CMD_TRACE_READ_IN("DEV_CMD_GET_JACK_STATE");
     k4a_result_t result = TRACE_CALL(usb_cmd_read(
         colormcu->usb_cmd, DEV_CMD_GET_JACK_STATE, NULL, 0, (uint8_t *)&state, sizeof(state), &bytes_read));
+    USB_CMD_TRACE_READ_OUT("DEV_CMD_GET_JACK_STATE");
     if (K4A_SUCCEEDED(result))
     {
         result = K4A_RESULT_FROM_BOOL(bytes_read == sizeof(state));
@@ -280,8 +286,10 @@ k4a_result_t colormcu_set_multi_device_mode(colormcu_t colormcu_handle, const k4
         sync_config.depth_delay_off_color_pts = K4A_USEC_TO_90K_HZ_TICK(config->depth_delay_off_color_usec);
         sync_config.enable_privacy_led = !config->disable_streaming_indicator;
 
+        USB_CMD_TRACE_WRITE_IN("DEV_CMD_SET_SYS_CFG");
         result = TRACE_CALL(usb_cmd_write(
             colormcu->usb_cmd, DEV_CMD_SET_SYS_CFG, (uint8_t *)&sync_config, sizeof(sync_config), NULL, 0));
+        USB_CMD_TRACE_WRITE_OUT("DEV_CMD_SET_SYS_CFG");
     }
     return result;
 }
@@ -291,5 +299,8 @@ k4a_result_t colormcu_reset_device(colormcu_t colormcu_handle)
     RETURN_VALUE_IF_HANDLE_INVALID(K4A_RESULT_FAILED, colormcu_t, colormcu_handle);
     colormcu_context_t *colormcu = colormcu_t_get_context(colormcu_handle);
 
-    return TRACE_CALL(usb_cmd_write(colormcu->usb_cmd, DEV_CMD_RESET, NULL, 0, NULL, 0));
+    USB_CMD_TRACE_WRITE_IN("COLOR_DEV_CMD_RESET");
+    k4a_result_t result = TRACE_CALL(usb_cmd_write(colormcu->usb_cmd, DEV_CMD_RESET, NULL, 0, NULL, 0));
+    USB_CMD_TRACE_WRITE_OUT("COLOR_DEV_CMD_RESET");
+    return result;
 }
