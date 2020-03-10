@@ -365,6 +365,14 @@ namespace Microsoft.Azure.Kinect.Sensor
 
         [DllImport("k4a", CallingConvention = k4aCallingConvention)]
         [NativeReference]
+        public static extern uint k4a_image_get_gain(k4a_image_t image_handle);
+
+        [DllImport("k4a", CallingConvention = k4aCallingConvention)]
+        [NativeReference]
+        public static extern void k4a_image_set_gain(k4a_image_t image_handle, uint value);
+
+        [DllImport("k4a", CallingConvention = k4aCallingConvention)]
+        [NativeReference]
         public static extern ulong k4a_image_get_device_timestamp_usec(k4a_image_t image_handle);
 
         [DllImport("k4a", CallingConvention = CallingConvention.Cdecl)]

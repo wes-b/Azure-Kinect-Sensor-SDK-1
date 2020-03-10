@@ -469,6 +469,38 @@ namespace Microsoft.Azure.Kinect.Sensor
         }
 
         /// <summary>
+        /// Gets or sets the gain.
+        /// </summary>
+        public int Gain
+        {
+            get
+            {
+                lock (this)
+                {
+                    if (this.disposedValue)
+                    {
+                        throw new ObjectDisposedException(nameof(Image));
+                    }
+
+                    return checked((int)NativeMethods.k4a_image_get_gain(this.handle));
+                }
+            }
+
+            set
+            {
+                lock (this)
+                {
+                    if (this.disposedValue)
+                    {
+                        throw new ObjectDisposedException(nameof(Image));
+                    }
+
+                    NativeMethods.k4a_image_set_gain(this.handle, checked((uint)value));
+                }
+            }
+        }
+
+        /// <summary>
         /// Gets the pixels of the image.
         /// </summary>
         /// <typeparam name="TPixel">The type of the pixel.</typeparam>

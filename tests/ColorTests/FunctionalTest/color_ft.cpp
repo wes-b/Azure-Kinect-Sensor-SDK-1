@@ -594,6 +594,18 @@ TEST_F(color_functional_test, colorExposureTest)
     ASSERT_GT(exposure_time = k4a_image_get_exposure_usec(image), 0);
     ASSERT_LT(exposure_time, 33333); // At a min, this should be smaller than the frame rate
 
+    uint32_t white_bal;
+    ASSERT_GT(white_bal = k4a_image_get_white_balance(image), (uint32_t)0);
+    ASSERT_LT(white_bal, (uint32_t)256);
+
+    uint32_t gain;
+    ASSERT_GT(gain = k4a_image_get_gain(image), (uint32_t)0);
+    ASSERT_LT(gain, (uint32_t)256);
+
+    uint32_t iso_speed;
+    ASSERT_GT(iso_speed = k4a_image_get_iso_speed(image), (uint32_t)0);
+    ASSERT_LT(exposure_time, (uint32_t)1600);
+
     std::cout << "exposure_time applied = " << exposure_time << " uSec\n";
 
     k4a_image_release(image);

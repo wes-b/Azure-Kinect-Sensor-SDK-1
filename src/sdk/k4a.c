@@ -473,6 +473,11 @@ uint32_t k4a_image_get_iso_speed(k4a_image_t image_handle)
     return image_get_iso_speed(image_handle);
 }
 
+uint32_t k4a_image_get_gain(k4a_image_t image_handle)
+{
+    return image_get_gain(image_handle);
+}
+
 void k4a_image_set_device_timestamp_usec(k4a_image_t image_handle, uint64_t timestamp_usec)
 {
     image_set_device_timestamp_usec(image_handle, timestamp_usec);
@@ -508,6 +513,11 @@ void k4a_image_set_white_balance(k4a_image_t image_handle, uint32_t white_balanc
 void k4a_image_set_iso_speed(k4a_image_t image_handle, uint32_t iso_speed)
 {
     image_set_iso_speed(image_handle, iso_speed);
+}
+
+void k4a_image_set_gain(k4a_image_t image_handle, uint32_t gain)
+{
+    image_set_gain(image_handle, gain);
 }
 
 void k4a_image_reference(k4a_image_t image_handle)

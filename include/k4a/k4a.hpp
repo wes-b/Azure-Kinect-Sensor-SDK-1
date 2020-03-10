@@ -366,6 +366,15 @@ public:
         return k4a_image_get_iso_speed(m_handle);
     }
 
+    /** Get the image's gain setting (color images only)
+     *
+     * \sa k4a_image_get_gain
+     */
+    uint32_t get_gain() const noexcept
+    {
+        return k4a_image_get_gain(m_handle);
+    }
+
     /** Set the image's timestamp in microseconds
      *
      * \sa k4a_image_set_device_timestamp_usec
@@ -400,6 +409,15 @@ public:
     void set_iso_speed(uint32_t iso_speed) noexcept
     {
         k4a_image_set_iso_speed(m_handle, iso_speed);
+    }
+
+    /** Set the gain of the image (color images only)
+     *
+     * \sa k4a_image_set_gain
+     */
+    void set_gain(uint32_t gain) noexcept
+    {
+        k4a_image_set_gain(m_handle, gain);
     }
 
 private:

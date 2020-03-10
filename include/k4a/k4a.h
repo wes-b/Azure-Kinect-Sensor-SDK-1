@@ -1002,6 +1002,30 @@ K4A_EXPORT uint32_t k4a_image_get_white_balance(k4a_image_t image_handle);
  */
 K4A_EXPORT uint32_t k4a_image_get_iso_speed(k4a_image_t image_handle);
 
+/** Get the image gain.
+ *
+ * \param image_handle
+ * Handle of the image for which the get operation is performed on.
+ *
+ * \remarks
+ * Returns the image gain used when capturing the image.
+ *
+ * \returns
+ * If the \p image_handle is invalid, or no exposure was set on the image, the function will return 0. Otherwise,
+ * it will return the image gain setting.
+ *
+ * \relates k4a_image_t
+ *
+ * \xmlonly
+ * <requirements>
+ *   <requirement name="Header">k4a.h (include k4a/k4a.h)</requirement>
+ *   <requirement name="Library">k4a.lib</requirement>
+ *   <requirement name="DLL">k4a.dll</requirement>
+ * </requirements>
+ * \endxmlonly
+ */
+K4A_EXPORT uint32_t k4a_image_get_gain(k4a_image_t image_handle);
+
 /** Set the device time stamp, in microseconds, of the image.
  *
  * \param image_handle
@@ -1188,6 +1212,30 @@ K4A_EXPORT void k4a_image_set_white_balance(k4a_image_t image_handle, uint32_t w
  * \endxmlonly
  */
 K4A_EXPORT void k4a_image_set_iso_speed(k4a_image_t image_handle, uint32_t iso_speed);
+
+/** Set the gain used to capture the image
+ *
+ * \param image_handle
+ * Handle of the image to set the again on.
+ *
+ * \param iso_speed
+ * Gain of the image.
+ *
+ * \remarks
+ * Use this function in conjunction with k4a_image_create() or k4a_image_create_from_buffer() to construct a
+ * \ref k4a_image_t. A gain of 0 is considered invalid. Only color images are expected to have a valid gain.
+ *
+ * \relates k4a_image_t
+ *
+ * \xmlonly
+ * <requirements>
+ *   <requirement name="Header">k4a.h (include k4a/k4a.h)</requirement>
+ *   <requirement name="Library">k4a.lib</requirement>
+ *   <requirement name="DLL">k4a.dll</requirement>
+ * </requirements>
+ * \endxmlonly
+ */
+K4A_EXPORT void k4a_image_set_gain(k4a_image_t image_handle, uint32_t gain);
 
 /** Add a reference to the k4a_image_t.
  *

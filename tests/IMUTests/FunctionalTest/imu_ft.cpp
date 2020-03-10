@@ -10,7 +10,7 @@
 #include <azure_c_shared_utility/threadapi.h>
 
 //**************Symbolic Constant Macros (defines)  *************
-#define STREAM_RUN_TIME_SEC 4
+#define STREAM_RUN_TIME_SEC 40
 #define ERROR_START_STREAM_TIME 10000
 #define SECOND_TO_MICROSECONDS(sec) (sec * 1000 * 1000)
 
@@ -101,6 +101,7 @@ static void RunStreamConfig(k4a_device_t device, uint32_t expected_fps)
     config.depth_mode = K4A_DEPTH_MODE_NFOV_UNBINNED;
     config.camera_fps = K4A_FRAMES_PER_SECOND_30;
     config.synchronized_images_only = true;
+    ThreadAPI_Sleep(5000);
     ASSERT_EQ(K4A_RESULT_SUCCEEDED, k4a_device_start_cameras(device, &config));
 
     fps_period_us = HZ_TO_PERIOD_US(k4a_convert_fps_to_uint(config.camera_fps));
