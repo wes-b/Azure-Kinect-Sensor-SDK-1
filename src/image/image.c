@@ -43,6 +43,7 @@ typedef struct _image_context_t
         {
             uint32_t white_balance;
             uint32_t iso_speed;
+            uint32_t gain;
         } color;
     } metadata;
 
@@ -471,6 +472,13 @@ uint32_t image_get_iso_speed(k4a_image_t image_handle)
     return image->metadata.color.iso_speed;
 }
 
+uint32_t image_get_gain(k4a_image_t image_handle)
+{
+    RETURN_VALUE_IF_HANDLE_INVALID(0, k4a_image_t, image_handle);
+    image_context_t *image = k4a_image_t_get_context(image_handle);
+    return image->metadata.color.gain;
+}
+
 void image_set_device_timestamp_usec(k4a_image_t image_handle, uint64_t timestamp_usec)
 {
     RETURN_VALUE_IF_HANDLE_INVALID(VOID_VALUE, k4a_image_t, image_handle);
@@ -538,4 +546,11 @@ void image_set_iso_speed(k4a_image_t image_handle, uint32_t iso_speed)
     RETURN_VALUE_IF_HANDLE_INVALID(VOID_VALUE, k4a_image_t, image_handle);
     image_context_t *image = k4a_image_t_get_context(image_handle);
     image->metadata.color.iso_speed = iso_speed;
+}
+
+void image_set_gain(k4a_image_t image_handle, uint32_t gain)
+{
+    RETURN_VALUE_IF_HANDLE_INVALID(VOID_VALUE, k4a_image_t, image_handle);
+    image_context_t *image = k4a_image_t_get_context(image_handle);
+    image->metadata.color.gain = gain;
 }
